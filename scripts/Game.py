@@ -34,17 +34,22 @@ class Game:
             neighbor_edges = [self._edge_dict[pos] for pos in neighbor_coords]
             
             node.set_neighbors(neighbor_edges)
-
+        print(self._map)
         # cell value of 2 = cell where a ghost is allowed but manpac isn't
-        ghost_start_indices = list(zip(*np.where(self._map == Tiles.SPAWN)))
-
+        ghost_start_indices = list(zip(*np.where(self._map == 2)))
         # Initialize dict of ghosts, mapping position of ghost to ghost object
         self._ghosts: Dict[CoordinatePair, Ghost] = { \
-            i : Ghost(i) for i in ghost_start_indices[:MAX_GHOSTS] \
+            i : Ghost(i, self._map[i[0],i[1]]) for i in ghost_start_indices[:MAX_GHOSTS] \
         }
-    
+
+        
         self._manpac_position = INIT_MANPAC_POSITION
         self._manpac_direction = INIT_MANPAC_DIRECTION
+
+        for ghost_pos, ghost in self._ghosts.items():
+            init_path = self._find_path(ghost_pos,self._manpac_position)
+            print(init_path)
+            ghost.set_path(init_path)
 
     '''
         @method play_step()
@@ -56,6 +61,7 @@ class Game:
     def play_step(self, move_vector: CoordinatePair) -> GameStatus:
 
         game_status = self._process_player_turn(move_vector=move_vector)
+        print('yo')
         if game_status == False:
             return False
         
@@ -73,8 +79,8 @@ class Game:
     '''     
     def _process_ai_turn(self) -> GameStatus:
 
-        for ghost in self._ghosts:
-            ghost_position = ghost.get_position()
+        for ghost_position, ghost in self._ghosts.items():
+            print(ghost_position)
             if ghost_position == self._manpac_position:
                 
                 self.__init__()
@@ -85,7 +91,11 @@ class Game:
             new_pos,last_pos,last_value = ghost.move()   
             if new_pos:
                 self._map[last_pos[0], last_pos[1]] = last_value
-                self._map[new_pos[0], new_pos[1]] = Tiles.GHOST 
+                self._map[new_pos[0], new_pos[1]] = 4
+            else:
+                path = self._find_path(ghost_position, self._manpac_position)
+                ghost.set_path(path)
+
         return GameStatus.GAME_RUNNING
     
     '''
@@ -180,7 +190,7 @@ class Game:
 
         @return Calls "_backtrack()" to return a list of CoordinatePairs as path from "start" to "dest".
     '''     
-    def _find_path(self, start: CoordinatePair, dest: CoordinatePair) -> None:
+    def _find_path(self, start: CoordinatePair, dest: CoordinatePair) -> List[CoordinatePair]:
         
         init_edge = self._edge_dict[start]
 
@@ -191,13 +201,15 @@ class Game:
 
             current_cell = open_list.pop(0)
             if current_cell.position == dest:
+                print('oy')
                 return self._backtrack(neighbor)
             
             closed_list.append(current_cell)
 
             neighbors = current_cell.get_neighbors()
             for neighbor in neighbors:
-                if neighbor in closed_list:
+                n_x,n_y = neighbor.position[0],neighbor.position[1]
+                if neighbor in closed_list or self._map[n_x,n_y] == 2:
                     continue
                 
                 neighbor.set_parent(current_cell)
@@ -236,6 +248,7 @@ class Game:
 
             n_edge.reset()
             n_edge = next
+        return result
     '''
         @method _find_node()
         @description Finds a node with position "position" in an ordered list
@@ -287,7 +300,7 @@ class Game:
         neighbors = [n for n in neighbors \
                      if n[0] > 0 and n[0] < self._map.shape[0]\
                      and n[1] > 0 and n[1] <  self._map.shape[1] 
-                     and self._map[n[0], n[1]] != Tiles.WALL]
+                     and self._map[n[0], n[1]] != 0]
         return neighbors
 
 
