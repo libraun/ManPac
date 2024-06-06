@@ -2,7 +2,9 @@ import math
 
 import os
 import os.path 
+import cv2
 import math
+import numpy as np
 
 from defs import *
 from ghost import Ghost
@@ -44,21 +46,17 @@ class Game:
     def __init__(self, map_filename: str):
         
         map_loaded = self._load_map(map_filename)
-        print(self.__repr__())
         if not map_loaded:
             exit(EXIT_FAILURE)
         valid_path_positions = zip(*np.where(self._map != 0))
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
         for idx_pair in valid_path_positions:
-            print(idx_pair)
             navigable_edge = NavigableEdge(idx_pair)
             self._edge_dict[idx_pair] = navigable_edge
 
-        for key, edge in self._edge_dict.items():
-            print(self._map[edge.position[0],edge.position[1]])
+        for edge in self._edge_dict.items():
             neighbor_coords = self._get_neighbors(edge.position)
             neighbor_edges = [self._edge_dict[pos] for pos in neighbor_coords]
-            print(neighbor_coords)
             edge.set_neighbors(neighbor_edges)
 
         # cell value of 2 = cell where a ghost is allowed but manpac isn't
@@ -72,10 +70,9 @@ class Game:
     def process_ai_turn(self) -> None:
 
         for ghost in self._ghosts:
-
             pass
 
-
+    
     def _load_map(self, filename: str) -> bool:
         
         if not os.path.isfile(filename):
@@ -96,8 +93,8 @@ class Game:
         return str(self._map)
     
     def find_path(self, start: CoordinatePair, dest: CoordinatePair) -> None:
+        
         init_edge = self._edge_dict[start]
-        print(init_edge)
 
         open_list: List[NavigableEdge] = [init_edge]
         closed_list: List[NavigableEdge] = []
@@ -106,7 +103,6 @@ class Game:
 
             current_cell = open_list.pop(0)
             if current_cell.position == dest:
-                print("Found!")
                 return self._backtrack(neighbor)
             
             closed_list.append(current_cell)
@@ -131,8 +127,8 @@ class Game:
 
                     if cmp1 > cmp2:
                         continue
+
                 self._priority_insert(neighbor, open_list)
-                print(len(open_list))
     
     def _backtrack(self,n_edge: NavigableEdge) -> List[CoordinatePair]:
 
@@ -146,10 +142,12 @@ class Game:
             n_edge = next
                     
     def _find_node(self, search_list: List[NavigableEdge], position: CoordinatePair) -> None | NavigableEdge:
+        
         for edge in search_list:
             if edge.position == position:
                 return edge
         return None
+    
     def _priority_insert(self, src: NavigableEdge, dst: List[NavigableEdge]) -> None:
         
         trg_idx = -1
@@ -158,6 +156,7 @@ class Game:
             if edge.f_cost > src.f_cost:
                 trg_idx = idx
                 break
+
         dst.insert(trg_idx,src)
         
         

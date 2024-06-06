@@ -10,7 +10,7 @@ CoordinatePair = Tuple[ int ]
 EXIT_FAILURE = -1
 EXIT_SUCCESS = 0
 
-MAP_FILENAME = "map_WithSpawn.png"
+MAP_FILENAME = "../assets/map_WithSpawn.png"
 
 MAX_GHOSTS = 1
 
