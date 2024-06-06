@@ -1,5 +1,9 @@
 import math
 
+import os
+import os.path 
+import math
+
 from defs import *
 from ghost import Ghost
 
