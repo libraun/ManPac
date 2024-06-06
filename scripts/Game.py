@@ -9,41 +9,7 @@ import random
 
 from defs import *
 from ghost import Ghost
-#from navigable_edge import NavigableEdge
-
-class NavigableEdge:
-    def __init__(self,idx_pair, neighbors=None):
-        
-        self.position = idx_pair
-        
-        self.g_cost = 0.0
-        self.h_cost = 0.0
-        self.f_cost = 0.0
-
-        self._neighbors = neighbors
-        self._parent = None
-
-    def get_neighbors(self) -> list:
-
-        return self._neighbors
-
-    def set_neighbors(self, neighbors: list) -> None:
-        
-        self._neighbors = neighbors
-
-    def get_parent(self):
-        return self._parent
-
-    def set_parent(self, parent) -> None:
-        self._parent = parent
-    
-    def reset(self) -> None:
-        self.g_cost = 0.0
-        self.h_cost = 0.0
-        self.f_cost = 0.0
-
-        self._parent = None
-    
+from navigable_edge import NavigableEdge    
     
 class Game:
     def __init__(self):
@@ -55,22 +21,24 @@ class Game:
         self._score = 0
 
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
+
+        # Create a list of indices that are pathable
         valid_indices = zip(*np.where(self._map != Tiles.WALL))
         for idx_pair in valid_indices:
-            print(idx_pair)
             navigable_edge = NavigableEdge(idx_pair)
             self._edge_dict[idx_pair] = navigable_edge
 
-        for key, val in self._edge_dict.items():
-            print(key)
-            neighbor_coords = self._get_neighbors(key)
+        # Set the neighbors of each node for quicker access
+        for position, node in self._edge_dict.items():
+            neighbor_coords = self._get_neighbors(position)
             neighbor_edges = [self._edge_dict[pos] for pos in neighbor_coords]
             
-            val.set_neighbors(neighbor_edges)
+            node.set_neighbors(neighbor_edges)
 
         # cell value of 2 = cell where a ghost is allowed but manpac isn't
         ghost_start_indices = list(zip(*np.where(self._map == Tiles.SPAWN)))
 
+        # Initialize dict of ghosts, mapping position of ghost to ghost object
         self._ghosts: Dict[CoordinatePair, Ghost] = { \
             i : Ghost(i) for i in ghost_start_indices[:MAX_GHOSTS] \
         }
@@ -78,15 +46,31 @@ class Game:
         self._manpac_position = INIT_MANPAC_POSITION
         self._manpac_direction = INIT_MANPAC_DIRECTION
 
+    '''
+        @method play_step()
+        @description Main callable method; accepts a direction and first attempts to move player
+            in that direction, then processes turn for AI ghosts one by one.
+
+        @return The current running state of the game after the ghost's turn.
+    '''     
     def play_step(self, move_vector: CoordinatePair) -> GameStatus:
 
         game_status = self._process_player_turn(move_vector=move_vector)
+        if game_status == False:
+            return False
+        
         game_status = self._process_ai_turn()
 
         if game_status == GameStatus.GAME_OVER:
             self.__init__()
         return game_status
+    
+    '''
+        @method _process_ai_turn()
+        @description Processes the next move for each ghost.
 
+        @return The current running state of the game after the ghost's turn.
+    '''     
     def _process_ai_turn(self) -> GameStatus:
 
         for ghost in self._ghosts:
@@ -103,8 +87,21 @@ class Game:
                 self._map[last_pos[0], last_pos[1]] = last_value
                 self._map[new_pos[0], new_pos[1]] = Tiles.GHOST 
         return GameStatus.GAME_RUNNING
+    
+    '''
+        @method _process_player_turn()
+        @description Accepts a direction in which to move the player and attempts to move player,
+            returning the game's running status on completion.
 
-    def _process_player_turn(self,move_vector: CoordinatePair) -> GameStatus:
+        @param "move_vector" A CoordinatePair (int tuple) indicating the direction (NOT position)
+            in which to move the player.
+
+        @return The current running state of the game after the player's turn.
+    '''     
+    def _process_player_turn(self,move_vector: CoordinatePair | None) -> GameStatus:
+
+        move_vector = move_vector or self._manpac_direction
+
         result = GameStatus.GAME_RUNNING
 
         updated_x = self._manpac_position[0] + move_vector[0]
@@ -134,7 +131,12 @@ class Game:
             self._invincible_pac = True
         
         return result
+    '''
+        @method _respawn_ghost()
+        @description Respawns and reinitializes the argument ghost.
 
+        @param "ghost" The ghost to be respawned
+    '''     
     def _respawn_ghost(self, ghost: Ghost) -> None:
         ghost_start_indices = list(zip(*np.where(self._map == Tiles.SPAWN)))
         random_spawn_point = random.choice(ghost_start_indices)
@@ -161,6 +163,15 @@ class Game:
     def __repr__(self) -> str:
         return str(self._map)
     
+    '''
+        @method _find_path()
+        @description Uses A* pathfinding algorithm to find a path from point A to point B
+
+        @param "start" A CoordinatePair indicating the initial position.
+        @param "dest" A CoordinatePair that is the point to which a path is drawn.
+
+        @return Calls "_backtrack()" to return a list of CoordinatePairs as path from "start" to "dest".
+    '''     
     def _find_path(self, start: CoordinatePair, dest: CoordinatePair) -> None:
         
         init_edge = self._edge_dict[start]
@@ -199,6 +210,14 @@ class Game:
 
                 self._priority_insert(neighbor, open_list)
     
+    '''
+        @method _backtrack()
+        @description Iterates through the parent nodes of a NavigableEdge until None is found.
+
+        @param "n_edge" A NavigableEdge (passed at the end of "_find_path()")
+
+        @return A list of every position along "n_edge" path
+    '''     
     def _backtrack(self,n_edge: NavigableEdge) -> List[CoordinatePair]:
 
         result = []
@@ -209,7 +228,15 @@ class Game:
 
             n_edge.reset()
             n_edge = next
-                    
+    '''
+        @method _find_node()
+        @description Finds a node with position "position" in an ordered list
+
+        @param "search_list" A list of NavigableEdges on which search is performed
+        @param "position" A CoordinatePair (int tuple) that will be searched for in "search_list"
+
+        @return The NavigableEdge whose position is "position" if found, else none.
+    '''       
     def _find_node(self, search_list: List[NavigableEdge], position: CoordinatePair) -> None | NavigableEdge:
         
         for edge in search_list:
@@ -217,15 +244,21 @@ class Game:
                 return edge
         return None
     
+    '''
+        @method _priority_insert()
+        @description Inserts a NavigableEdge node into a list based on its f_cost
+
+        @param "src" The NavigableEdge node to insert
+        @param "dst" The list in which to insert "src"
+    '''     
     def _priority_insert(self, src: NavigableEdge, dst: List[NavigableEdge]) -> None:
         
+        # Insert dst at the last position if it has the highest f_cost
         trg_idx = -1
         for idx, edge in enumerate(dst):
-
             if edge.f_cost > src.f_cost:
                 trg_idx = idx
                 break
-
         dst.insert(trg_idx,src)
         
         
