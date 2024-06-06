@@ -5,9 +5,11 @@ import os.path
 import cv2
 import math
 import numpy as np
+import random
 
 from defs import *
 from ghost import Ghost
+#from navigable_edge import NavigableEdge
 
 class NavigableEdge:
     def __init__(self,idx_pair, neighbors=None):
@@ -42,37 +44,104 @@ class NavigableEdge:
 
         self._parent = None
     
+    
 class Game:
-    def __init__(self, map_filename: str):
+    def __init__(self):
         
-        map_loaded = self._load_map(map_filename)
+        map_loaded = self._load_map(MAP_FILENAME)
         if not map_loaded:
             exit(EXIT_FAILURE)
-        valid_path_positions = zip(*np.where(self._map != 0))
+
+        self._score = 0
+
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
-        for idx_pair in valid_path_positions:
+        valid_indices = zip(*np.where(self._map != Tiles.WALL))
+        for idx_pair in valid_indices:
+            print(idx_pair)
             navigable_edge = NavigableEdge(idx_pair)
             self._edge_dict[idx_pair] = navigable_edge
 
-        for edge in self._edge_dict.items():
-            neighbor_coords = self._get_neighbors(edge.position)
+        for key, val in self._edge_dict.items():
+            print(key)
+            neighbor_coords = self._get_neighbors(key)
             neighbor_edges = [self._edge_dict[pos] for pos in neighbor_coords]
-            edge.set_neighbors(neighbor_edges)
+            
+            val.set_neighbors(neighbor_edges)
 
         # cell value of 2 = cell where a ghost is allowed but manpac isn't
-        ghost_start_indices = list(zip(*np.where(self._map == 2)))
+        ghost_start_indices = list(zip(*np.where(self._map == Tiles.SPAWN)))
 
-        self._ghosts = [Ghost(i) for i in ghost_start_indices[:MAX_GHOSTS]]
+        self._ghosts: Dict[CoordinatePair, Ghost] = { \
+            i : Ghost(i) for i in ghost_start_indices[:MAX_GHOSTS] \
+        }
+    
         self._manpac_position = INIT_MANPAC_POSITION
+        self._manpac_direction = INIT_MANPAC_DIRECTION
 
-        self.find_path(self._ghosts[0].get_position(),self._manpac_position)
+    def play_step(self, move_vector: CoordinatePair) -> GameStatus:
 
-    def process_ai_turn(self) -> None:
+        game_status = self._process_player_turn(move_vector=move_vector)
+        game_status = self._process_ai_turn()
+
+        if game_status == GameStatus.GAME_OVER:
+            self.__init__()
+        return game_status
+
+    def _process_ai_turn(self) -> GameStatus:
 
         for ghost in self._ghosts:
-            pass
+            ghost_position = ghost.get_position()
+            if ghost_position == self._manpac_position:
+                
+                self.__init__()
+                return GameStatus.GAME_OVER
+            elif not ghost.is_busy or ghost.elapsed_ticks > 10:
+                path = self._find_path(ghost_position, self._manpac_position)
+                ghost.set_path(path)
+            new_pos,last_pos,last_value = ghost.move()   
+            if new_pos:
+                self._map[last_pos[0], last_pos[1]] = last_value
+                self._map[new_pos[0], new_pos[1]] = Tiles.GHOST 
+        return GameStatus.GAME_RUNNING
 
-    
+    def _process_player_turn(self,move_vector: CoordinatePair) -> GameStatus:
+        result = GameStatus.GAME_RUNNING
+
+        updated_x = self._manpac_position[0] + move_vector[0]
+        updated_y = self._manpac_position[1] + move_vector[1]
+
+        self._manpac_direction = move_vector
+
+        grid_value = self._map[updated_x, updated_y]
+        if grid_value == Tiles.FREE:
+
+            self._manpac_position = (updated_x, updated_y)
+
+        elif grid_value == Tiles.GHOST and self._invincible_pac:
+
+            target_position = (updated_x, updated_y)
+            target_ghost = self._ghosts[target_position]
+
+            self._manpac_position = target_position
+
+            self._respawn_ghost(target_ghost)
+            self._score += 10
+        elif grid_value == Tiles.GHOST:
+
+            result = GameStatus.GAME_OVER
+
+        elif grid_value == Tiles.POWERUP:
+            self._invincible_pac = True
+        
+        return result
+
+    def _respawn_ghost(self, ghost: Ghost) -> None:
+        ghost_start_indices = list(zip(*np.where(self._map == Tiles.SPAWN)))
+        random_spawn_point = random.choice(ghost_start_indices)
+
+        ghost.set_position(random_spawn_point)
+        ghost.reset()
+
     def _load_map(self, filename: str) -> bool:
         
         if not os.path.isfile(filename):
@@ -92,7 +161,7 @@ class Game:
     def __repr__(self) -> str:
         return str(self._map)
     
-    def find_path(self, start: CoordinatePair, dest: CoordinatePair) -> None:
+    def _find_path(self, start: CoordinatePair, dest: CoordinatePair) -> None:
         
         init_edge = self._edge_dict[start]
 
@@ -176,7 +245,9 @@ class Game:
             (position[0], position[1] - 1)
         ]
         neighbors = [n for n in neighbors \
-                     if self._map[n[0], n[1]] != 0 ]
+                     if n[0] > 0 and n[0] < self._map.shape[0] and \
+                     n[1] > 0 and n[1] < self._map.shape[0] and 
+                     self._map[n[0], n[1]] != 0  ]
         return neighbors
 
 
