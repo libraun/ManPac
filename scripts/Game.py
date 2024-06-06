@@ -144,6 +144,14 @@ class Game:
         ghost.set_position(random_spawn_point)
         ghost.reset()
 
+    '''
+        @method _load_map()
+        @description Loads a numpy array as the game map from an image file.
+
+        @param "filename" The name or path of the image file to use as a map.
+
+        @return True if map loaded successfully else False.
+    '''    
     def _load_map(self, filename: str) -> bool:
         
         if not os.path.isfile(filename):
@@ -260,16 +268,15 @@ class Game:
                 trg_idx = idx
                 break
         dst.insert(trg_idx,src)
-        
-        
 
+    '''
+        @method _get_neighbors()
+        @description Gets a list of adjacent neighbors to a position.
 
-                
+        @param "position" The CoordinatePair (int tuple) whose adjacent neighbors will be retrieved
 
-                    
-
-
-
+        @return A list of valid neighbors for "position"
+    '''     
     def _get_neighbors(self, position: CoordinatePair) -> List[CoordinatePair]:
         neighbors = [
             (position[0] + 1, position[1]), 
@@ -278,9 +285,9 @@ class Game:
             (position[0], position[1] - 1)
         ]
         neighbors = [n for n in neighbors \
-                     if n[0] > 0 and n[0] < self._map.shape[0] and \
-                     n[1] > 0 and n[1] < self._map.shape[0] and 
-                     self._map[n[0], n[1]] != 0  ]
+                     if n[0] > 0 and n[0] < self._map.shape[0]\
+                     and n[1] > 0 and n[1] <  self._map.shape[1] 
+                     and self._map[n[0], n[1]] != Tiles.WALL]
         return neighbors
 
 
