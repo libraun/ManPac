@@ -13,9 +13,17 @@ from navigable_edge import NavigableEdge
     
 class Game:
     def __init__(self):
-        
+
+        self.reset()
+
+    def reset(self) -> None:
         map_loaded = self._load_map(MAP_FILENAME)
-        assert map_loaded, exit(EXIT_FAILURE)
+        assert map_loaded, exit(EXIT_CODES.EXIT_FAILURE)
+        
+        # Keep a copy of playable map for easy reassignment after moves
+
+        self._init_map = np.copy(self._map)
+
 
         self.score = 0
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
@@ -78,71 +86,7 @@ class Game:
 
         @return The current running state of the game after the ghost's turn.
     '''     
-    def play_step(self, player_move: CoordinatePair) -> GameStatus:
-
-        game_status = self._process_ai_turn()
-        if game_status == GameStatus.GAME_OVER:
-            self.__init__()
-            return game_status
-        game_status = self._process_player_turn(player_move)
-        if game_status == GameStatus.GAME_OVER:
-            self.__init__()
-        return game_status
-    
-
-    
-    '''
-        @method _process_ai_turn()
-        @description Processes the next move for each ghost.
-
-        @return The current running state of the game after the ghost's turn.
-    '''     
-    def _process_ai_turn(self) -> GameStatus:
- 
-        for ghost in self._ghosts:
-            last_pos = ghost.get_position()
-            new_pos = ghost.move_along_path()
-            if not self._invincible_pac:
-                if last_pos == self._manpac_position:
-                    return GameStatus.GAME_OVER
-                if new_pos == last_pos or not ghost.is_busy:
-                    path = self._find_path(last_pos)
-                    ghost.set_path(path)
-
-                    new_pos = ghost.move_along_path()
-            else:
-                new_pos = self._get_panic_move(last_pos)   
-                ghost.set_position(new_pos)
-
-            if new_pos != last_pos:
-                last_cell_value = self._map[last_pos.x,last_pos.y]
-                current_cell_value = self._map[new_pos.x, new_pos.y]
-                if current_cell_value == Tiles.POINT:
-                    self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POINT
-                elif current_cell_value == Tiles.POWERUP:
-                    self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POWERUP
-                else:   
-                    self._map[new_pos.x, new_pos.y] = Tiles.GHOST
-                
-                if last_cell_value == Tiles.GHOST_PLUS_POINT:
-                    self._map[last_pos.x, last_pos.y] = Tiles.POINT
-                elif last_cell_value == Tiles.GHOST_PLUS_POWERUP:
-                    self._map[last_pos.x, last_pos.y] = Tiles.POINT
-                else:
-                    self._map[last_pos.x, last_pos.y] = self._init_map[last_pos.x, last_pos.y]
-        return GameStatus.GAME_RUNNING
-    
-    '''
-        @method _process_player_turn()
-        @description Accepts a direction in which to move the player and attempts to move player,
-            returning the game's running status on completion.
-
-        @param "move_vector" A CoordinatePair (int tuple) indicating the direction (NOT position)
-            in which to move the player.
-
-        @return The current running state of the game after the player's turn.
-    '''     
-    def _process_player_turn(self, direction: CoordinatePair | None) -> GameStatus:
+    def play_step(self, player_move: CoordinatePair, replay: bool=False) -> GameStatus:
 
         # Update the tick counter if ManPac is invincible
         if self._invincible_pac and self._invincible_ticks < MAX_INVINCIBILITY_TICKS:
@@ -157,6 +101,62 @@ class Game:
                 new_path = self._find_path(ghost.get_position())
                 ghost.set_path(new_path)
 
+        game_status = self._process_ai_turn()
+        if game_status == GameStatus.GAME_OVER:
+            return game_status, -10
+            
+        reward, game_status = self._process_player_turn(player_move)
+        return game_status, reward
+    
+
+    
+    '''
+        @method _process_ai_turn()
+        @description Processes the next move for each ghost.
+
+        @return The current running state of the game after the ghost's turn.
+    '''     
+    def _process_ai_turn(self) -> GameStatus:
+ 
+        for ghost in self._ghosts:
+            last_pos = ghost.get_position()
+            new_pos = ghost.move_along_path()
+
+            # Player is NOT invincible, find path to it
+            if not self._invincible_pac:
+                
+                if last_pos == self._manpac_position:
+                    return GameStatus.GAME_OVER
+                if new_pos == last_pos or not ghost.is_busy:
+                    path = self._find_path(last_pos)
+                    ghost.set_path(path)
+
+                    new_pos = ghost.move_along_path()
+                else:
+                    self._update_ghost_coordinates(last_pos, new_pos)
+
+            # manpac is invincible; get furthest position from it and set manaully
+            else: 
+                new_pos = self._get_panic_move(last_pos)
+                if new_pos != last_pos:   
+                    ghost.set_position(new_pos)
+                    self._update_ghost_coordinates(last_pos,new_pos)
+
+        return GameStatus.GAME_RUNNING
+    
+    '''
+        @method _process_player_turn()
+        @description Accepts a direction in which to move the player and attempts to move player,
+            returning the game's running status on completion.
+
+        @param "move_vector" A CoordinatePair (int tuple) indicating the direction (NOT position)
+            in which to move the player.
+
+        @return The current running state of the game after the player's turn.
+    '''     
+    def _process_player_turn(self, direction: CoordinatePair | None) -> GameStatus:
+
+
         updated_x = self._manpac_position.x + direction.x
         updated_y = self._manpac_position.y + direction.y
 
@@ -165,10 +165,11 @@ class Game:
         grid_value = self._map[updated_x, updated_y]
         position = CoordinatePair(updated_x, updated_y)
 
+        reward = 0
         if grid_value == Tiles.WALL:
-            return GameStatus.GAME_RUNNING
+            return reward, GameStatus.GAME_RUNNING
             
-        elif grid_value == Tiles.GHOST and self._invincible_pac:
+        elif grid_value >= Tiles.GHOST and self._invincible_pac:
             target_ghost = None
             for ghost in self._ghosts:  
                 if ghost.get_position() == position:
@@ -177,18 +178,20 @@ class Game:
 
             assert target_ghost != None 
             self._respawn_ghost(target_ghost)
-            self.score += 10
+            reward = 10
 
-        elif grid_value == Tiles.GHOST:
-            return GameStatus.GAME_OVER
+        elif grid_value >= Tiles.GHOST:
+            return -10, GameStatus.GAME_OVER
 
         elif grid_value == Tiles.POWERUP:
             self._invincible_pac = True
             self._invincible_ticks = 0
 
+            reward = 5
+
         elif grid_value == Tiles.POINT:
             self._map[updated_x, updated_y] = Tiles.FREE
-            self.score += 1
+            reward = 1
 
         # Update coordinates
         self._map[self._manpac_position.x, self._manpac_position.y] = \
@@ -196,7 +199,7 @@ class Game:
         self._manpac_position = position
 
         self._map[position.x, position.y] = Tiles.MANPAC
-        return GameStatus.GAME_RUNNING
+        return reward, GameStatus.GAME_RUNNING
     
     '''
         @method _get_panic_move()
@@ -224,6 +227,24 @@ class Game:
 
         ghost.set_position(CoordinatePair(spawn_coord[0],spawn_coord[1]))
         ghost.reset()
+    
+    def _update_ghost_coordinates(self, last_pos: CoordinatePair, new_pos: CoordinatePair):
+        last_cell_value = self._map[last_pos.x,last_pos.y]
+        new_cell_value = self._map[new_pos.x, new_pos.y]
+
+        if new_cell_value == Tiles.POINT:
+            self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POINT
+        elif new_cell_value == Tiles.POWERUP:
+            self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POWERUP
+        else:   
+            self._map[new_pos.x, new_pos.y] = Tiles.GHOST
+        
+        if last_cell_value == Tiles.GHOST_PLUS_POINT:
+            self._map[last_pos.x, last_pos.y] = Tiles.POINT
+        elif last_cell_value == Tiles.GHOST_PLUS_POWERUP:
+            self._map[last_pos.x, last_pos.y] = Tiles.POWERUP
+        else:
+            self._map[last_pos.x, last_pos.y] = self._init_map[last_pos.x, last_pos.y]
 
     '''
         @method _load_map()
@@ -247,9 +268,6 @@ class Game:
         # Reassign arbitrary color values
         self._map[self._map == 127] = Tiles.SPAWN
         self._map[self._map == 255] = Tiles.FREE
-
-        # Keep a copy of playable map for easy reassignment after moves
-        self._init_map = np.copy(self._map)
 
         return self._map is not None
     
