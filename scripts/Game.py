@@ -15,41 +15,61 @@ class Game:
     def __init__(self):
         
         map_loaded = self._load_map(MAP_FILENAME)
-        if not map_loaded:
-            exit(EXIT_FAILURE)
+        assert map_loaded, exit(EXIT_FAILURE)
 
-        self._score = 0
-
+        self.score = 0
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
 
         # Create a list of indices that are pathable
-        valid_indices = zip(*np.where(self._map != Tiles.WALL))
-        for idx_pair in valid_indices:
-            navigable_edge = NavigableEdge(idx_pair)
-            self._edge_dict[idx_pair] = navigable_edge
+        x_set, y_set = np.where(self._map != Tiles.WALL)
+        for i in range(len(x_set)):
+            valid_coords = CoordinatePair(x_set[i],y_set[i])
+
+            path_tile = NavigableEdge(valid_coords)
+            self._edge_dict[valid_coords] = path_tile
 
         # Set the neighbors of each node for quicker access
-        for position, node in self._edge_dict.items():
-            neighbor_coords = self._get_neighbors(position)
-            neighbor_edges = [self._edge_dict[pos] for pos in neighbor_coords]
+        for coords, node in self._edge_dict.items():
+            neighbor_coords = self._get_neighbors(coords)
+            neighbor_tiles = [self._edge_dict[coords] for coords in neighbor_coords]
             
-            node.set_neighbors(neighbor_edges)
-        print(self._map)
+            node.set_neighbors(neighbor_tiles)
         # cell value of 2 = cell where a ghost is allowed but manpac isn't
-        ghost_start_indices = list(zip(*np.where(self._map == 2)))
-        # Initialize dict of ghosts, mapping position of ghost to ghost object
-        self._ghosts: Dict[CoordinatePair, Ghost] = { \
-            i : Ghost(i, self._map[i[0],i[1]]) for i in ghost_start_indices[:MAX_GHOSTS] \
-        }
-
+        ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
+        ghost_spawn_coords = [CoordinatePair(i[0],i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
         
-        self._manpac_position = INIT_MANPAC_POSITION
-        self._manpac_direction = INIT_MANPAC_DIRECTION
+        # Initialize list of ghosts, mapping position of ghost to ghost object
+        self._ghosts: Sequence[Ghost] = np.array([None for i in range(MAX_GHOSTS)],dtype=Ghost)
+        for i, g_spawn_coord in enumerate(ghost_spawn_coords):
+            self._map[g_spawn_coord.x,g_spawn_coord.y] = Tiles.GHOST
+            self._ghosts[i] = Ghost(g_spawn_coord) 
 
-        for ghost_pos, ghost in self._ghosts.items():
-            init_path = self._find_path(ghost_pos,self._manpac_position)
-            print(init_path)
+        powerup_spawn_coords = list(zip(*np.where(self._map == Tiles.FREE)))
+        for powerup_spawn_coord in random.sample(powerup_spawn_coords, MAX_POWERUPS):
+            self._map[powerup_spawn_coord[0], powerup_spawn_coord[1]] = Tiles.POWERUP
+        
+        point_spawn_coords = list(zip(*np.where(self._map == Tiles.FREE)))
+        
+        # Multiply number of potential spawn coords by ratio of points to free area
+        # to get initial number of points
+        number_points = math.floor(len(point_spawn_coords) * POINT_COVERAGE)
+        for point_spawn_coord in random.sample(point_spawn_coords, number_points):
+            self._map[point_spawn_coord[0], point_spawn_coord[1]] = Tiles.POINT
+
+        self._manpac_position: CoordinatePair = INIT_MANPAC_POSITION 
+        self._manpac_direction: CoordinatePair = INIT_MANPAC_DIRECTION # Last ManPac direction
+        
+        self._invincible_pac: bool = False # Whether or not player is invincible
+        self._invincible_ticks: int = 0
+
+        self._map[INIT_MANPAC_POSITION.x,INIT_MANPAC_POSITION.y] = Tiles.MANPAC
+
+        for ghost in self._ghosts:
+            init_path = self._find_path(ghost.get_position())
             ghost.set_path(init_path)
+
+    def get_map(self) -> np.ndarray:
+        return self._map
 
     '''
         @method play_step()
@@ -58,18 +78,18 @@ class Game:
 
         @return The current running state of the game after the ghost's turn.
     '''     
-    def play_step(self, move_vector: CoordinatePair) -> GameStatus:
+    def play_step(self, player_move: CoordinatePair) -> GameStatus:
 
-        game_status = self._process_player_turn(move_vector=move_vector)
-        print('yo')
-        if game_status == False:
-            return False
-        
         game_status = self._process_ai_turn()
-
+        if game_status == GameStatus.GAME_OVER:
+            self.__init__()
+            return game_status
+        game_status = self._process_player_turn(player_move)
         if game_status == GameStatus.GAME_OVER:
             self.__init__()
         return game_status
+    
+
     
     '''
         @method _process_ai_turn()
@@ -78,24 +98,38 @@ class Game:
         @return The current running state of the game after the ghost's turn.
     '''     
     def _process_ai_turn(self) -> GameStatus:
+ 
+        for ghost in self._ghosts:
+            last_pos = ghost.get_position()
+            new_pos = ghost.move_along_path()
+            if not self._invincible_pac:
+                if last_pos == self._manpac_position:
+                    return GameStatus.GAME_OVER
+                if new_pos == last_pos or not ghost.is_busy:
+                    path = self._find_path(last_pos)
+                    ghost.set_path(path)
 
-        for ghost_position, ghost in self._ghosts.items():
-            print(ghost_position)
-            if ghost_position == self._manpac_position:
-                
-                self.__init__()
-                return GameStatus.GAME_OVER
-            elif not ghost.is_busy or ghost.elapsed_ticks > 10:
-                path = self._find_path(ghost_position, self._manpac_position)
-                ghost.set_path(path)
-            new_pos,last_pos,last_value = ghost.move()   
-            if new_pos:
-                self._map[last_pos[0], last_pos[1]] = last_value
-                self._map[new_pos[0], new_pos[1]] = 4
+                    new_pos = ghost.move_along_path()
             else:
-                path = self._find_path(ghost_position, self._manpac_position)
-                ghost.set_path(path)
+                new_pos = self._get_panic_move(last_pos)   
+                ghost.set_position(new_pos)
 
+            if new_pos != last_pos:
+                last_cell_value = self._map[last_pos.x,last_pos.y]
+                current_cell_value = self._map[new_pos.x, new_pos.y]
+                if current_cell_value == Tiles.POINT:
+                    self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POINT
+                elif current_cell_value == Tiles.POWERUP:
+                    self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POWERUP
+                else:   
+                    self._map[new_pos.x, new_pos.y] = Tiles.GHOST
+                
+                if last_cell_value == Tiles.GHOST_PLUS_POINT:
+                    self._map[last_pos.x, last_pos.y] = Tiles.POINT
+                elif last_cell_value == Tiles.GHOST_PLUS_POWERUP:
+                    self._map[last_pos.x, last_pos.y] = Tiles.POINT
+                else:
+                    self._map[last_pos.x, last_pos.y] = self._init_map[last_pos.x, last_pos.y]
         return GameStatus.GAME_RUNNING
     
     '''
@@ -108,39 +142,76 @@ class Game:
 
         @return The current running state of the game after the player's turn.
     '''     
-    def _process_player_turn(self,move_vector: CoordinatePair | None) -> GameStatus:
+    def _process_player_turn(self, direction: CoordinatePair | None) -> GameStatus:
 
-        move_vector = move_vector or self._manpac_direction
+        # Update the tick counter if ManPac is invincible
+        if self._invincible_pac and self._invincible_ticks < MAX_INVINCIBILITY_TICKS:
+            self._invincible_ticks += 1
+        # Invincible ticks has exceeded max, make manpac vincible and reset ghost paths
+        elif self._invincible_pac:
 
-        result = GameStatus.GAME_RUNNING
+            self._invincible_pac = False
+            self._invincible_ticks = 0
 
-        updated_x = self._manpac_position[0] + move_vector[0]
-        updated_y = self._manpac_position[1] + move_vector[1]
+            for ghost in self._ghosts:
+                new_path = self._find_path(ghost.get_position())
+                ghost.set_path(new_path)
 
-        self._manpac_direction = move_vector
+        updated_x = self._manpac_position.x + direction.x
+        updated_y = self._manpac_position.y + direction.y
+
+        self._manpac_direction = direction if direction else self._manpac_direction
 
         grid_value = self._map[updated_x, updated_y]
-        if grid_value == Tiles.FREE:
+        position = CoordinatePair(updated_x, updated_y)
 
-            self._manpac_position = (updated_x, updated_y)
-
+        if grid_value == Tiles.WALL:
+            return GameStatus.GAME_RUNNING
+            
         elif grid_value == Tiles.GHOST and self._invincible_pac:
+            target_ghost = None
+            for ghost in self._ghosts:  
+                if ghost.get_position() == position:
+                    target_ghost = ghost
+                    break
 
-            target_position = (updated_x, updated_y)
-            target_ghost = self._ghosts[target_position]
-
-            self._manpac_position = target_position
-
+            assert target_ghost != None 
             self._respawn_ghost(target_ghost)
-            self._score += 10
-        elif grid_value == Tiles.GHOST:
+            self.score += 10
 
-            result = GameStatus.GAME_OVER
+        elif grid_value == Tiles.GHOST:
+            return GameStatus.GAME_OVER
 
         elif grid_value == Tiles.POWERUP:
             self._invincible_pac = True
-        
-        return result
+            self._invincible_ticks = 0
+
+        elif grid_value == Tiles.POINT:
+            self._map[updated_x, updated_y] = Tiles.FREE
+            self.score += 1
+
+        # Update coordinates
+        self._map[self._manpac_position.x, self._manpac_position.y] = \
+            self._init_map[self._manpac_position.x,self._manpac_position.y]
+        self._manpac_position = position
+
+        self._map[position.x, position.y] = Tiles.MANPAC
+        return GameStatus.GAME_RUNNING
+    
+    '''
+        @method _get_panic_move()
+        @description Gets the neighbors of a coordinates furthest away from pacman
+
+        @param "position" The coordinates to retrieve furthest neighbors from pacman
+    '''     
+    def _get_panic_move(self, position: CoordinatePair) -> None | CoordinatePair:
+       
+        moves = self._get_neighbors(position)
+        moves = sorted(moves,key=lambda x: math.dist(x,self._manpac_position),reverse=True)
+        if not moves:
+            return None
+        return moves[0] 
+
     '''
         @method _respawn_ghost()
         @description Respawns and reinitializes the argument ghost.
@@ -148,10 +219,10 @@ class Game:
         @param "ghost" The ghost to be respawned
     '''     
     def _respawn_ghost(self, ghost: Ghost) -> None:
-        ghost_start_indices = list(zip(*np.where(self._map == Tiles.SPAWN)))
-        random_spawn_point = random.choice(ghost_start_indices)
+        ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
+        spawn_coord = random.choice(ghost_spawn_coords)
 
-        ghost.set_position(random_spawn_point)
+        ghost.set_position(CoordinatePair(spawn_coord[0],spawn_coord[1]))
         ghost.reset()
 
     '''
@@ -173,62 +244,55 @@ class Game:
 
         self._map = np.array(bitmap,dtype=int)
 
-        self._map[self._map == 127] = 2
-        self._map[self._map == 255] = 1
+        # Reassign arbitrary color values
+        self._map[self._map == 127] = Tiles.SPAWN
+        self._map[self._map == 255] = Tiles.FREE
+
+        # Keep a copy of playable map for easy reassignment after moves
+        self._init_map = np.copy(self._map)
 
         return self._map is not None
-    
-    def __repr__(self) -> str:
-        return str(self._map)
     
     '''
         @method _find_path()
         @description Uses A* pathfinding algorithm to find a path from point A to point B
 
         @param "start" A CoordinatePair indicating the initial position.
-        @param "dest" A CoordinatePair that is the point to which a path is drawn.
 
-        @return Calls "_backtrack()" to return a list of CoordinatePairs as path from "start" to "dest".
+        @return Calls "_backtrack()" to return a list of CoordinatePairs as path from "start" to ManPac.
     '''     
-    def _find_path(self, start: CoordinatePair, dest: CoordinatePair) -> List[CoordinatePair]:
-        
+    def _find_path(self, start: CoordinatePair) -> List[CoordinatePair]:
+
         init_edge = self._edge_dict[start]
 
         open_list: List[NavigableEdge] = [init_edge]
         closed_list: List[NavigableEdge] = []
-
         while open_list:
 
-            current_cell = open_list.pop(0)
-            if current_cell.position == dest:
-                print('oy')
-                return self._backtrack(neighbor)
+            current = open_list.pop(0)
+            if current.position == self._manpac_position:
+                return self._backtrack(current)
             
-            closed_list.append(current_cell)
-
-            neighbors = current_cell.get_neighbors()
+            closed_list.append(current)
+            neighbors = [n for n in current.get_neighbors() \
+                         if n not in closed_list]
             for neighbor in neighbors:
-                n_x,n_y = neighbor.position[0],neighbor.position[1]
-                if neighbor in closed_list or self._map[n_x,n_y] == 2:
-                    continue
+
+                temp_g_cost = current.g_cost + 1
+                temp_h_cost = math.dist(neighbor.position, self._manpac_position)
+                temp_f_cost = temp_g_cost + temp_h_cost
                 
-                neighbor.set_parent(current_cell)
+                ol_found_node = self._find_node(open_list,neighbor.position)
+                if ol_found_node and ol_found_node.f_cost < temp_f_cost:
+                    continue
 
-                neighbor.h_cost = current_cell.h_cost + 1
-                neighbor.g_cost = math.dist(neighbor.position, dest)
+                neighbor.g_cost = temp_g_cost
+                neighbor.h_cost = temp_h_cost
+                neighbor.f_cost = temp_f_cost
 
-                neighbor.f_cost = neighbor.h_cost + neighbor.g_cost
-
-                found_node = self._find_node(open_list,neighbor.position)
-                if found_node:
-
-                    cmp1 = math.dist(neighbor.position,start)
-                    cmp2 = math.dist(neighbor.position, found_node.position)
-
-                    if cmp1 > cmp2:
-                        continue
-
+                neighbor.set_parent(current)
                 self._priority_insert(neighbor, open_list)
+
     
     '''
         @method _backtrack()
@@ -239,15 +303,16 @@ class Game:
         @return A list of every position along "n_edge" path
     '''     
     def _backtrack(self,n_edge: NavigableEdge) -> List[CoordinatePair]:
-
         result = []
         next = n_edge
         while next:
-            result.append(next.position)
+            result.insert(0,next.position)
             next = next.get_parent()
 
             n_edge.reset()
             n_edge = next
+            
+        result.pop(0)
         return result
     '''
         @method _find_node()
@@ -259,7 +324,6 @@ class Game:
         @return The NavigableEdge whose position is "position" if found, else none.
     '''       
     def _find_node(self, search_list: List[NavigableEdge], position: CoordinatePair) -> None | NavigableEdge:
-        
         for edge in search_list:
             if edge.position == position:
                 return edge
@@ -290,17 +354,22 @@ class Game:
 
         @return A list of valid neighbors for "position"
     '''     
-    def _get_neighbors(self, position: CoordinatePair) -> List[CoordinatePair]:
-        neighbors = [
-            (position[0] + 1, position[1]), 
-            (position[0] - 1, position[1]),
-            (position[0], position[1] + 1),
-            (position[0], position[1] - 1)
+    def _get_adjacent_cells(self, position: CoordinatePair) -> List[CoordinatePair]:
+
+        adjacent_cells = [
+            CoordinatePair(position.x + 1, position.y), 
+            CoordinatePair(position.x - 1, position.y),
+            CoordinatePair(position.x, position.y + 1),
+            CoordinatePair(position.x, position.y - 1)
         ]
-        neighbors = [n for n in neighbors \
-                     if n[0] > 0 and n[0] < self._map.shape[0]\
-                     and n[1] > 0 and n[1] <  self._map.shape[1] 
-                     and self._map[n[0], n[1]] != 0]
+        adjacent_cells = [(pos, self._map[pos.x,pos.y]) for pos in adjacent_cells \
+                          if pos.x > 0 and pos.x < self._map.shape[0] \
+                          and pos.y > 0 and pos.y < self._map.shape[1]]
+        return adjacent_cells
+
+    def _get_neighbors(self, position: CoordinatePair) -> List[CoordinatePair]:
+        adjacent_coords = self._get_adjacent_cells(position)
+        neighbors = [n for n, val in adjacent_coords if val != Tiles.WALL]
         return neighbors
 
 
