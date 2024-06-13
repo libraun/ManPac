@@ -70,7 +70,7 @@ class Game:
         self._invincible_pac: bool = False # Whether or not player is invincible
         self._invincible_ticks: int = 0
 
-        self._map[INIT_MANPAC_POSITION.x,INIT_MANPAC_POSITION.y] = Tiles.MANPAC
+        self._actor_map[INIT_MANPAC_POSITION.x,INIT_MANPAC_POSITION.y] = Tiles.MANPAC
 
         for ghost in self._ghosts:
             init_path = self._find_path(ghost.get_position())
