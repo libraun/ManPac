@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+import numpy
 
 class DataViewer:
 
@@ -35,13 +36,13 @@ class DataViewer:
         ghost_down = adjacent_cells[3][1] == Tiles.GHOST
 
         player_is_invincible = self._env._invincible_pac
-        state = (
+        state = [
             wall_left, wall_right, wall_up, wall_down,
             coin_left, coin_right, coin_up, coin_down,
             ghost_left, ghost_right, ghost_up, ghost_down,
             player_is_invincible
-        )
-        return state
+        ]
+        return numpy.array(state,dtype=bool)
         
     
     ## Utility Functions ##
@@ -96,18 +97,15 @@ class StateMemory:
     def __init__(self, lr: float = 0.01):
         self.memory = deque([], maxlen=MAX_MEMORY)
     
-    def push(self, *args) -> None:
-        self.memory.append(TransitionMemory(*args))
+    def push(self,state,next_state,action,reward,done) -> None:
+        self.memory.append((state,next_state,action,reward,done))
 
     def sample(self, batch_size: int):
 
-        if self.__len__() > batch_size:
-            
+        if len(self.memory) > batch_size:
             return random.sample(self.memory, batch_size)
         return self.memory
     
-    def __len__(self) -> int: 
-        return len(self.memory)
 
 
 
@@ -124,9 +122,11 @@ class Agent:
 
     def train(self):
         sample_memory = self.state_memory.sample(batch_size=BATCH_SIZE)
-        self.train_step(*sample_memory)
+        state,next_state,action,reward,done = zip(*sample_memory)
+        self.train_step(state,next_state,action,reward,done)
 
     def train_step(self,state,next_state,action,reward,done):
+
         state = torch.tensor(state,dtype=torch.float)
         next_state = torch.tensor(next_state,dtype=torch.float)
         action = torch.tensor(action,dtype=torch.float)
