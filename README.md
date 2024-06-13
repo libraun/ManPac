@@ -1,2 +1,2 @@
 # ManPac !
-AI model for PacMan that uses reinforcement learning. So far only includes a custom PacMan (ManPac?) environment.
+AI model for PacMan that uses reinforcement learning. Includes a custom PacMan (ManPac?) environment.
