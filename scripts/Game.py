@@ -21,9 +21,18 @@ class Game:
         assert map_loaded, exit(EXIT_CODES.EXIT_FAILURE)
         
         # Keep a copy of playable map for easy reassignment after moves
-
         self._init_map = np.copy(self._map)
-
+        # cell value of 2 = cell where a ghost is allowed but manpac isn't
+        ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
+        ghost_spawn_coords = [CoordinatePair(i[0],i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
+        
+        # Initialize list of ghosts, mapping position of ghost to ghost object
+        self._ghosts: Sequence[Ghost] = np.array([None for i in range(MAX_GHOSTS)],dtype=Ghost)
+        for i, g_spawn_coord in enumerate(ghost_spawn_coords):
+            self._map[g_spawn_coord.x,g_spawn_coord.y] = Tiles.GHOST
+            self._ghosts[i] = Ghost(g_spawn_coord) 
+        
+        self._actor_map = np.copy(self._map)
 
         self.score = 0
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
@@ -42,15 +51,6 @@ class Game:
             neighbor_tiles = [self._edge_dict[coords] for coords in neighbor_coords]
             
             node.set_neighbors(neighbor_tiles)
-        # cell value of 2 = cell where a ghost is allowed but manpac isn't
-        ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
-        ghost_spawn_coords = [CoordinatePair(i[0],i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
-        
-        # Initialize list of ghosts, mapping position of ghost to ghost object
-        self._ghosts: Sequence[Ghost] = np.array([None for i in range(MAX_GHOSTS)],dtype=Ghost)
-        for i, g_spawn_coord in enumerate(ghost_spawn_coords):
-            self._map[g_spawn_coord.x,g_spawn_coord.y] = Tiles.GHOST
-            self._ghosts[i] = Ghost(g_spawn_coord) 
 
         powerup_spawn_coords = list(zip(*np.where(self._map == Tiles.FREE)))
         for powerup_spawn_coord in random.sample(powerup_spawn_coords, MAX_POWERUPS):
@@ -78,6 +78,9 @@ class Game:
 
     def get_map(self) -> np.ndarray:
         return self._map
+    
+    def get_manpac_position(self) -> CoordinatePair:
+        return self._manpac_position
 
     '''
         @method play_step()
@@ -102,6 +105,20 @@ class Game:
                 ghost.set_path(new_path)
 
         game_status = self._process_ai_turn()
+        
+        ghost_positions = set([ghost.get_position() for ghost in self._ghosts])
+        
+        old_ghost_positions = set([CoordinatePair(coord[0],coord[1]) for coord in zip(*np.where(self._map >= Tiles.GHOST))])
+        freed_coords = ghost_positions.difference(old_ghost_positions)
+
+        for position in freed_coords:
+            self._map[position.x, position.y] = self._actor_map[position.x,position.y]
+
+        for position in ghost_positions:
+            if position == self._manpac_position:
+                return GameStatus.GAME_OVER, -10
+            #self._update_ghost_coordinates(position)
+
         if game_status == GameStatus.GAME_OVER:
             return game_status, -10
             
@@ -120,19 +137,24 @@ class Game:
  
         for ghost in self._ghosts:
             last_pos = ghost.get_position()
-            new_pos = ghost.move_along_path()
-
             # Player is NOT invincible, find path to it
             if not self._invincible_pac:
                 
+                new_pos = ghost.move_along_path()
                 if last_pos == self._manpac_position:
+                    
                     return GameStatus.GAME_OVER
+                
                 if new_pos == last_pos or not ghost.is_busy:
+
                     path = self._find_path(last_pos)
                     ghost.set_path(path)
-
+                    
                     new_pos = ghost.move_along_path()
-                else:
+                    self._update_ghost_coordinates(last_pos, new_pos)
+
+                elif new_pos != last_pos:
+
                     self._update_ghost_coordinates(last_pos, new_pos)
 
             # manpac is invincible; get furthest position from it and set manaully
@@ -156,13 +178,12 @@ class Game:
     '''     
     def _process_player_turn(self, direction: CoordinatePair | None) -> GameStatus:
 
-
+        self._manpac_direction = direction if direction else self._manpac_direction
+        
         updated_x = self._manpac_position.x + direction.x
         updated_y = self._manpac_position.y + direction.y
-
-        self._manpac_direction = direction if direction else self._manpac_direction
-
-        grid_value = self._map[updated_x, updated_y]
+        
+        grid_value = self._actor_map[updated_x, updated_y]
         position = CoordinatePair(updated_x, updated_y)
 
         reward = 0
@@ -190,15 +211,14 @@ class Game:
             reward = 5
 
         elif grid_value == Tiles.POINT:
-            self._map[updated_x, updated_y] = Tiles.FREE
+            self._actor_map[updated_x, updated_y] = Tiles.FREE
             reward = 1
-
         # Update coordinates
         self._map[self._manpac_position.x, self._manpac_position.y] = \
             self._init_map[self._manpac_position.x,self._manpac_position.y]
         self._manpac_position = position
 
-        self._map[position.x, position.y] = Tiles.MANPAC
+        self._actor_map[position.x, position.y] = Tiles.MANPAC
         return reward, GameStatus.GAME_RUNNING
     
     '''
@@ -292,10 +312,11 @@ class Game:
                 return self._backtrack(current)
             
             closed_list.append(current)
-            neighbors = [n for n in current.get_neighbors() \
-                         if n not in closed_list]
+            neighbors: List[NavigableEdge] = [
+                n for n in current.get_neighbors() \
+                if n not in closed_list]
+            
             for neighbor in neighbors:
-
                 temp_g_cost = current.g_cost + 1
                 temp_h_cost = math.dist(neighbor.position, self._manpac_position)
                 temp_f_cost = temp_g_cost + temp_h_cost
@@ -380,7 +401,7 @@ class Game:
             CoordinatePair(position.x, position.y + 1),
             CoordinatePair(position.x, position.y - 1)
         ]
-        adjacent_cells = [(pos, self._map[pos.x,pos.y]) for pos in adjacent_cells \
+        adjacent_cells = [(pos, self._actor_map[pos.x,pos.y]) for pos in adjacent_cells \
                           if pos.x > 0 and pos.x < self._map.shape[0] \
                           and pos.y > 0 and pos.y < self._map.shape[1]]
         return adjacent_cells
@@ -389,8 +410,3 @@ class Game:
         adjacent_coords = self._get_adjacent_cells(position)
         neighbors = [n for n, val in adjacent_coords if val != Tiles.WALL]
         return neighbors
-
-
-
-
-

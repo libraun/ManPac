@@ -11,15 +11,10 @@ class Ghost:
 
         self._current_position: CoordinatePair = coordinates
         self._path: List[ CoordinatePair ] = []
-
-    def __repr__(self) -> str:
-        return str(self._current_position)
     
     def move_along_path(self) -> None | CoordinatePair:
         
-        self.is_busy = self._path and self.elapsed_ticks <= 25
-        
-        if not self.is_busy:
+        if not self._path:
             return self._current_position
 
         self._current_position = self._path.pop(0)
@@ -39,7 +34,9 @@ class Ghost:
         return self._current_position
     
     def set_position(self, position: CoordinatePair) -> None:
-        
+        if self._path:
+            self._path = []
+            self.elapsed_ticks = 0
         self._current_position = position
     
     def reset(self) -> None:

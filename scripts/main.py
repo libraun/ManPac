@@ -49,11 +49,16 @@ if DEBUG_ON:
                         pg.draw.ellipse(SCREEN, COLORS[7], rect, 0)
                     else:
                         pg.draw.circle(SCREEN,COLORS[6],((i * 20) + 10,(j * 20) + 10) , 5)
-                elif cell_value == Tiles.MANPAC:
-                    pg.draw.rect(SCREEN, COLORS[1], rect)
-                    pg.draw.ellipse(SCREEN, COLORS[5], rect, 0)
+                
                 else:
                     pg.draw.rect(SCREEN, COLORS[cell_value], rect)
+
+        manpac_position = ENV.get_manpac_position()
+        manpac_rect = pg.Rect(manpac_position.y * BLOCKSIZE,manpac_position.x * BLOCKSIZE,BLOCKSIZE,BLOCKSIZE)
+
+      #  print(env.)
+        pg.draw.rect(SCREEN, COLORS[1], rect)
+        pg.draw.ellipse(SCREEN, COLORS[5], manpac_rect, 0)
         pg.display.flip()
 
 
@@ -97,7 +102,8 @@ if __name__ == "__main__":
         final_state = state_viewer.get_state()
         
         agent.train_step(last_state,final_state,action,reward,game_status)
-
+        
+        agent.state_memory.push(last_state,final_state,action,reward,game_status)
         if game_status == GameStatus.GAME_OVER:
             agent.train()
             agent.n_games += 1
