@@ -20,28 +20,28 @@ class Game:
         self.reset()
 
     def reset(self) -> None:
-        map_loaded = self._load_map(MAP_FILENAME)
+        map_loaded = self._load_ghost_layer(MAP_FILENAME)
         assert map_loaded, exit(EXIT_CODES.EXIT_FAILURE)
         
         # Keep a copy of playable map for easy reassignment after moves
-        self._init_map = np.copy(self._map)
+        self._default_layer = np.copy(self._ghost_layer)
         # Grab available spawn coordinates
-        ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
+        ghost_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.SPAWN)))
         ghost_spawn_coords = [CoordinatePair(i[0], i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
         
         # Initialize list of ghosts, mapping position of ghost to ghost object
         self._ghosts: Sequence[Ghost] = np.array([None for i in range(MAX_GHOSTS)],dtype=Ghost)
         for i, g_spawn_coord in enumerate(ghost_spawn_coords):
-            self._map[g_spawn_coord.x,g_spawn_coord.y] = Tiles.GHOST
+            self._ghost_layer[g_spawn_coord.x,g_spawn_coord.y] = Tiles.GHOST
             self._ghosts[i] = Ghost(g_spawn_coord) 
         
-        self._actor_map = np.copy(self._map)
+        self._object_layer = np.copy(self._ghost_layer)
 
         self.score = 0
         self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
 
         # Create a list of indices that are pathable
-        x_set, y_set = np.where(self._map != Tiles.WALL)
+        x_set, y_set = np.where(self._ghost_layer != Tiles.WALL)
         for i in range(len(x_set)):
             valid_coords = CoordinatePair(x_set[i],y_set[i])
 
@@ -55,17 +55,17 @@ class Game:
             
             node.set_neighbors(neighbor_tiles)
 
-        powerup_spawn_coords = list(zip(*np.where(self._map == Tiles.FREE)))
+        powerup_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.FREE)))
         for powerup_spawn_coord in random.sample(powerup_spawn_coords, MAX_POWERUPS):
-            self._map[powerup_spawn_coord[0], powerup_spawn_coord[1]] = Tiles.POWERUP
+            self._ghost_layer[powerup_spawn_coord[0], powerup_spawn_coord[1]] = Tiles.POWERUP
         
-        point_spawn_coords = list(zip(*np.where(self._map == Tiles.FREE)))
+        point_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.FREE)))
         
         # Multiply number of potential spawn coords by ratio of points to free area
         # to get initial number of points
         number_points = math.floor(len(point_spawn_coords) * POINT_COVERAGE)
         for point_spawn_coord in random.sample(point_spawn_coords, number_points):
-            self._map[point_spawn_coord[0], point_spawn_coord[1]] = Tiles.POINT
+            self._ghost_layer[point_spawn_coord[0], point_spawn_coord[1]] = Tiles.POINT
 
         self._manpac_position: CoordinatePair = INIT_MANPAC_POSITION 
         self._manpac_direction: CoordinatePair = INIT_MANPAC_DIRECTION # Last ManPac direction
@@ -73,14 +73,14 @@ class Game:
         self._invincible_pac: bool = False # Whether or not player is invincible
         self._invincible_ticks: int = 0
 
-        self._actor_map[INIT_MANPAC_POSITION.x,INIT_MANPAC_POSITION.y] = Tiles.MANPAC
+        self._object_layer[INIT_MANPAC_POSITION.x,INIT_MANPAC_POSITION.y] = Tiles.MANPAC
 
         for ghost in self._ghosts:
             init_path = self._find_path(ghost.get_position())
             ghost.set_path(init_path)
 
-    def get_map(self) -> np.ndarray:
-        return self._map
+    def get_ghost_layer(self) -> np.ndarray:
+        return self._ghost_layer
     
     def get_manpac_position(self) -> CoordinatePair:
         return self._manpac_position
@@ -111,11 +111,11 @@ class Game:
         
         ghost_positions = set([ghost.get_position() for ghost in self._ghosts])
         
-        old_ghost_positions = set([CoordinatePair(coord[0],coord[1]) for coord in zip(*np.where(self._map >= Tiles.GHOST))])
+        old_ghost_positions = set([CoordinatePair(coord[0],coord[1]) for coord in zip(*np.where(self._ghost_layer >= Tiles.GHOST))])
         freed_coords = ghost_positions.difference(old_ghost_positions)
 
         for position in freed_coords:
-            self._map[position.x, position.y] = self._actor_map[position.x,position.y]
+            self._ghost_layer[position.x, position.y] = self._object_layer[position.x,position.y]
 
         for position in ghost_positions:
             if position == self._manpac_position:
@@ -187,7 +187,7 @@ class Game:
         updated_x = self._manpac_position.x + direction.x
         updated_y = self._manpac_position.y + direction.y
         
-        grid_value = self._actor_map[updated_x, updated_y]
+        grid_value = self._object_layer[updated_x, updated_y]
         position = CoordinatePair(updated_x, updated_y)
 
         reward = 0
@@ -215,14 +215,14 @@ class Game:
             reward = 5
 
         elif grid_value == Tiles.POINT:
-            self._actor_map[updated_x, updated_y] = Tiles.FREE
+            self._object_layer[updated_x, updated_y] = Tiles.FREE
             reward = 1
         # Update coordinates
-        self._map[self._manpac_position.x, self._manpac_position.y] = \
-            self._init_map[self._manpac_position.x,self._manpac_position.y]
+        self._ghost_layer[self._manpac_position.x, self._manpac_position.y] = \
+            self._default_layer[self._manpac_position.x,self._manpac_position.y]
         self._manpac_position = position
 
-        self._actor_map[position.x, position.y] = Tiles.MANPAC
+        self._object_layer[position.x, position.y] = Tiles.MANPAC
         return reward, GameStatus.GAME_RUNNING
     
     '''
@@ -246,39 +246,41 @@ class Game:
         @param "ghost" The ghost to be respawned
     '''     
     def _respawn_ghost(self, ghost: Ghost) -> None:
-        ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
+        ghost_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.SPAWN)))
         spawn_coord = random.choice(ghost_spawn_coords)
 
         ghost.set_position(CoordinatePair(spawn_coord[0],spawn_coord[1]))
         ghost.reset()
     
+
+    ## TODO: Rewrite this to use new 
     def _update_ghost_coordinates(self, last_pos: CoordinatePair, new_pos: CoordinatePair):
-        last_cell_value = self._map[last_pos.x,last_pos.y]
-        new_cell_value = self._map[new_pos.x, new_pos.y]
+        last_cell_value = self._ghost_layer[last_pos.x,last_pos.y]
+        new_cell_value = self._ghost_layer[new_pos.x, new_pos.y]
 
         if new_cell_value == Tiles.POINT:
-            self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POINT
+            self._ghost_layer[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POINT
         elif new_cell_value == Tiles.POWERUP:
-            self._map[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POWERUP
+            self._ghost_layer[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POWERUP
         else:   
-            self._map[new_pos.x, new_pos.y] = Tiles.GHOST
+            self._ghost_layer[new_pos.x, new_pos.y] = Tiles.GHOST
         
         if last_cell_value == Tiles.GHOST_PLUS_POINT:
-            self._map[last_pos.x, last_pos.y] = Tiles.POINT
+            self._ghost_layer[last_pos.x, last_pos.y] = Tiles.POINT
         elif last_cell_value == Tiles.GHOST_PLUS_POWERUP:
-            self._map[last_pos.x, last_pos.y] = Tiles.POWERUP
+            self._ghost_layer[last_pos.x, last_pos.y] = Tiles.POWERUP
         else:
-            self._map[last_pos.x, last_pos.y] = self._init_map[last_pos.x, last_pos.y]
+            self._ghost_layer[last_pos.x, last_pos.y] = self._default_layer[last_pos.x, last_pos.y]
 
     '''
-        @method _load_map()
+        @method _load_ghost_layer()
         @description Loads a numpy array as the game map from an image file.
 
         @param "filename" The name or path of the image file to use as a map.
 
         @return True if map loaded successfully else False.
     '''    
-    def _load_map(self, filename: str) -> bool:
+    def _load_ghost_layer(self, filename: str) -> bool:
         
         if not os.path.isfile(filename):
             return False
@@ -287,13 +289,13 @@ class Game:
         if bitmap is None:
             return False
 
-        self._map = np.array(bitmap,dtype=int)
+        self._ghost_layer = np.array(bitmap,dtype=int)
 
         # Reassign arbitrary color values
-        self._map[self._map == 127] = Tiles.SPAWN
-        self._map[self._map == 255] = Tiles.FREE
+        self._ghost_layer[self._ghost_layer == 127] = Tiles.SPAWN
+        self._ghost_layer[self._ghost_layer == 255] = Tiles.FREE
 
-        return self._map is not None
+        return self._ghost_layer is not None
     
     '''
         @method _find_path()
@@ -405,9 +407,9 @@ class Game:
             CoordinatePair(position.x, position.y + 1),
             CoordinatePair(position.x, position.y - 1)
         ]
-        adjacent_cells = [(pos, self._actor_map[pos.x,pos.y]) for pos in adjacent_cells \
-                          if pos.x > 0 and pos.x < self._map.shape[0] \
-                          and pos.y > 0 and pos.y < self._map.shape[1]]
+        adjacent_cells = [(pos, self._object_layer[pos.x,pos.y]) for pos in adjacent_cells \
+                          if pos.x > 0 and pos.x < self._ghost_layer.shape[0] \
+                          and pos.y > 0 and pos.y < self._ghost_layer.shape[1]]
         return adjacent_cells
 
     def _get_neighbors(self, position: CoordinatePair) -> List[CoordinatePair]:
