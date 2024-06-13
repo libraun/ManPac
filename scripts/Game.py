@@ -79,7 +79,7 @@ class Game:
             init_path = self._find_path(ghost.get_position())
             ghost.set_path(init_path)
 
-    def get_ghost_layer(self) -> np.ndarray:
+    def get_map(self) -> np.ndarray:
         return self._ghost_layer
     
     def get_manpac_position(self) -> CoordinatePair:
