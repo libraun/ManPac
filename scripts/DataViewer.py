@@ -35,18 +35,27 @@ class DataViewer:
         ghost_up = adjacent_cells[2][1] >= Tiles.GHOST
         ghost_down = adjacent_cells[3][1] == Tiles.GHOST
 
+        player_direction = self._env._manpac_direction
+        direction_idx = DIRECTIONS.index(player_direction)
+
+        direction_left = direction_idx == 0
+        direction_right = direction_idx == 1
+        direction_up = direction_idx == 2
+        direction_down = direction_idx == 3
+
         player_is_invincible = self._env._invincible_pac
         state = [
             wall_left, wall_right, wall_up, wall_down,
             coin_left, coin_right, coin_up, coin_down,
             ghost_left, ghost_right, ghost_up, ghost_down,
+            direction_left, direction_right, direction_up, direction_down,
             player_is_invincible
         ]
         return numpy.array(state,dtype=bool)
         
     
     ## Utility Functions ##
-'''
+    '''
     def get_fruit_right(self) -> bool:
         if self.last_direction[1] != 0:
             column = self.grid.transpose()[self.snake_body[-1][1]]
@@ -90,11 +99,10 @@ class DataViewer:
                 return False
 
             return (i < j).any()
-'''
-
+    '''
 
 class StateMemory:
-    def __init__(self, lr: float = 0.01):
+    def __init__(self):
         self.memory = deque([], maxlen=MAX_MEMORY)
     
     def push(self,state,next_state,action,reward,done) -> None:
@@ -105,13 +113,11 @@ class StateMemory:
         if len(self.memory) > batch_size:
             return random.sample(self.memory, batch_size)
         return self.memory
-    
-
 
 
 class Agent:
 
-    def __init__(self, model, state_memory: StateMemory, lr: float=0.01):
+    def __init__(self, model, state_memory: StateMemory, lr: float=0.001):
         self.state_memory = state_memory
         self.n_games = 0
         self.model = model
