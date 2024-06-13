@@ -10,7 +10,10 @@ import random
 from defs import *
 from ghost import Ghost
 from navigable_edge import NavigableEdge    
-    
+
+## TODO: Make ManPac his own class.
+
+## TODO: rewrite all this code so it isnt hanging together by patch tape and bits of string
 class Game:
     def __init__(self):
 
@@ -22,9 +25,9 @@ class Game:
         
         # Keep a copy of playable map for easy reassignment after moves
         self._init_map = np.copy(self._map)
-        # cell value of 2 = cell where a ghost is allowed but manpac isn't
+        # Grab available spawn coordinates
         ghost_spawn_coords = list(zip(*np.where(self._map == Tiles.SPAWN)))
-        ghost_spawn_coords = [CoordinatePair(i[0],i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
+        ghost_spawn_coords = [CoordinatePair(i[0], i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
         
         # Initialize list of ghosts, mapping position of ghost to ghost object
         self._ghosts: Sequence[Ghost] = np.array([None for i in range(MAX_GHOSTS)],dtype=Ghost)
@@ -178,6 +181,7 @@ class Game:
     '''     
     def _process_player_turn(self, direction: CoordinatePair | None) -> GameStatus:
 
+        ## TODO: Adjust ManPac's direction to be more... manpac-ey
         self._manpac_direction = direction if direction else self._manpac_direction
         
         updated_x = self._manpac_position.x + direction.x
