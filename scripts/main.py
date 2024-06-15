@@ -3,6 +3,7 @@ from defs import EXIT_CODES, CoordinatePair, Tiles
 
 from DataViewer import *
 from Model import Model
+from agent import Agent
 
 DEBUG_ON = True
 
@@ -75,10 +76,9 @@ DEBUG_ON = True
 if __name__ == "__main__":
 
     ENV = Game()
-
     state_viewer = DataViewer(ENV)
 
-    model = Model(in_features=13, out_features=4, hidden_dim=256)
+    model = Model(in_features=21, out_features=4, hidden_dim=256)
     agent = Agent(model=model,state_memory=StateMemory())
 
     if DEBUG_ON:
@@ -91,6 +91,8 @@ if __name__ == "__main__":
 
     replay = True
     running = True
+
+    top_score = 0
     while running:
 
         last_state = state_viewer.get_state()
@@ -107,11 +109,13 @@ if __name__ == "__main__":
         if game_status == GameStatus.GAME_OVER:
             agent.train()
             agent.n_games += 1
+            if ENV.score > top_score:
+                top_score = ENV.score
+                print("New High Score:", top_score)
             if replay:
                 ENV.reset()
-
         if DEBUG_ON:
             draw_map()
-            clock.tick(5)
+            clock.tick(50)
 
     exit(EXIT_CODES.EXIT_SUCCESS)

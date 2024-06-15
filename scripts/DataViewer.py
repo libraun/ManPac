@@ -3,12 +3,8 @@ import random
 
 from defs import *
 from Game import Game
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-
-import numpy
+ 
+import numpy as np
 
 class DataViewer:
 
@@ -23,17 +19,30 @@ class DataViewer:
         wall_left = adjacent_cells[0][1] == Tiles.WALL
         wall_right = adjacent_cells[1][1] == Tiles.WALL
         wall_up = adjacent_cells[2][1] == Tiles.WALL
-        wall_down = adjacent_cells[3][1] == Tiles.WALL
+        try:
+            wall_down = adjacent_cells[3][1] == Tiles.WALL
+        except:
+            wall_down = False
 
         coin_left = adjacent_cells[0][1] == Tiles.POINT
         coin_right = adjacent_cells[1][1] == Tiles.POINT
         coin_up = adjacent_cells[2][1] == Tiles.POINT
-        coin_down = adjacent_cells[3][1] == Tiles.POINT
+        try:
+            coin_down = adjacent_cells[3][1] == Tiles.POINT
+        except:
+            coin_down = False
 
-        ghost_left = adjacent_cells[0][1] >= Tiles.GHOST
-        ghost_right = adjacent_cells[1][1] >= Tiles.GHOST
-        ghost_up = adjacent_cells[2][1] >= Tiles.GHOST
-        ghost_down = adjacent_cells[3][1] == Tiles.GHOST
+        ghost_left = self.get_ghost_left(player_position)
+        ghost_right = self.get_ghost_right(player_position)
+        ghost_up = self.get_ghost_up(player_position)
+        try:
+            ghost_down = self.get_ghost_down(player_position)
+        except:
+            ghost_down = False
+        powerup_up = self.get_powerup_up(player_position)
+        powerup_down = self.get_powerup_down(player_position)
+        powerup_left = self.get_powerup_left(player_position)
+        powerup_right = self.get_powerup_right(player_position)
 
         player_direction = self._env._manpac_direction
         direction_idx = DIRECTIONS.index(player_direction)
@@ -44,62 +53,134 @@ class DataViewer:
         direction_down = direction_idx == 3
 
         player_is_invincible = self._env._invincible_pac
-        state = [
+        state = np.array([
             wall_left, wall_right, wall_up, wall_down,
             coin_left, coin_right, coin_up, coin_down,
             ghost_left, ghost_right, ghost_up, ghost_down,
+            powerup_left,powerup_right,powerup_up,powerup_down,
             direction_left, direction_right, direction_up, direction_down,
             player_is_invincible
-        ]
-        return numpy.array(state,dtype=bool)
+        ],dtype=float)
+        return state
         
     
     ## Utility Functions ##
-    '''
-    def get_fruit_right(self) -> bool:
-        if self.last_direction[1] != 0:
-            column = self.grid.transpose()[self.snake_body[-1][1]]
-            if 2 not in column:
-                return False
-            i, = np.where(column == 3)
-            j, = np.where(column == 2)
-            if i.size == 0 or j.size == 0:
-                return False
-            return (i < j).any()
-        else:
-            row = self.grid[self.snake_body[-1][0]]
-            if 2 not in row:
-                return False
-            i, = np.where(row == 3)
-            j, = np.where(row == 2)
-            if j.size == 0 or j.size == 0:
-                return False
+    
+    def get_ghost_right(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer.T
+        col = grid[coordinate.y]
 
-            return (i > j).any()
+        if Tiles.GHOST not in col:
+            return False
         
-    def get_danger_left(self) -> bool:
-        if self.last_direction[1] != 0:
+        i, = np.where(col >= Tiles.GHOST)
+        j, = np.where(col == Tiles.MANPAC)
 
-            column = self.grid.transpose()[self.snake_body[-1][1]]
-            if 2 not in column:
-                return False
-            i, = np.where(column == 3)
-            j, = np.where(column == 2)
-            if i.size or j.size:
-                return False
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i > j).any()
+    
+    def get_ghost_left(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer.T
+        col = grid[coordinate.y]
 
-            return (i > j).any()
-        else:
-            row = self.grid[self.snake_body[-1][0]]
-            if 2 not in row:
-                return False
-            i, = np.where(row == 3)
-            j, = np.where(row == 2)
-            if i.size == 0 or j.size == 0:
-                return False
+        if Tiles.GHOST not in col:
+            return False
+        
+        i, = np.where(col >= Tiles.GHOST)
+        j, = np.where(col == Tiles.MANPAC)
 
-            return (i < j).any()
-    '''
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i < j).any()
+        
+    def get_ghost_up(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer
+        col = grid[coordinate.x]
+
+        if Tiles.GHOST not in col:
+            return False
+        
+        i, = np.where(col >= Tiles.GHOST)
+        j, = np.where(col == Tiles.MANPAC)
+
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i > j).any()
+    
+    def get_ghost_down(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer
+        col = grid[coordinate.x]
+
+        if Tiles.GHOST not in col:
+            return False
+        
+        i, = np.where(col >= Tiles.GHOST)
+        j, = np.where(col == Tiles.MANPAC)
+
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i < j).any()
+    
+    def get_powerup_up(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer.T
+        col = grid[coordinate.y]
+
+        if Tiles.GHOST not in col:
+            return False
+        
+        
+        i, = np.where(col == (Tiles.POWERUP | Tiles.GHOST_PLUS_POWERUP))
+        j, = np.where(col == Tiles.MANPAC)
+
+        if i.size == 0 or j.size == 0:
+            return False
+        
+        return (i > j).any()
+    def get_powerup_down(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer.T
+        col = grid[coordinate.y]
+
+        if Tiles.GHOST not in col:
+            return False
+        
+        
+        i, = np.where(col == (Tiles.POWERUP | Tiles.GHOST_PLUS_POWERUP))
+        j, = np.where(col == Tiles.MANPAC)
+
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i > j).any()
+    
+    def get_powerup_left(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer
+        col = grid[coordinate.y]
+
+        if Tiles.POWERUP not in col:
+            return False
+        
+        i, = np.where(col == (Tiles.POWERUP | Tiles.GHOST_PLUS_POWERUP))
+        j, = np.where(col == Tiles.MANPAC)
+
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i > j).any()
+    def get_powerup_right(self, coordinate: CoordinatePair) -> bool:
+        grid = self._env._ghost_layer
+        col = grid[coordinate.y]
+
+        if Tiles.POWERUP not in col:
+            return False
+        
+
+        i, = np.where(col == (Tiles.POWERUP | Tiles.GHOST_PLUS_POWERUP))
+        j, = np.where(col == Tiles.MANPAC)
+
+        if i.size == 0 or j.size == 0:
+            return False
+        return (i < j).any()
+    
+    
 
 class StateMemory:
     def __init__(self):
@@ -113,60 +194,3 @@ class StateMemory:
         if len(self.memory) > batch_size:
             return random.sample(self.memory, batch_size)
         return self.memory
-
-
-class Agent:
-
-    def __init__(self, model, state_memory: StateMemory, lr: float=0.001):
-        self.state_memory = state_memory
-        self.n_games = 0
-        self.model = model
-        self.gamma = 0.99
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
-        self.criterion = nn.MSELoss()
-
-
-    def train(self):
-        sample_memory = self.state_memory.sample(batch_size=BATCH_SIZE)
-        state,next_state,action,reward,done = zip(*sample_memory)
-        self.train_step(state,next_state,action,reward,done)
-
-    def train_step(self,state,next_state,action,reward,done):
-
-        state = torch.tensor(state,dtype=torch.float)
-        next_state = torch.tensor(next_state,dtype=torch.float)
-        action = torch.tensor(action,dtype=torch.float)
-        reward = torch.tensor(reward,dtype=torch.float)
-
-        if len(state.shape) == 1:
-            state = torch.unsqueeze(state, 0)
-            next_state = torch.unsqueeze(next_state,0)
-            action = torch.unsqueeze(action,0)
-            reward = torch.unsqueeze(reward,0)
-            done = (done,)
-
-        pred = self.model(state)
-        target = pred.clone()
-        for idx in range(len(done)):
-            Q_new = reward[idx]
-            if not done[idx]:
-                Q_new = reward[idx] + self.gamma * torch.max(self.model(next_state[idx]))
-            target[idx][torch.argmax(action).item()] = Q_new
-        self.optimizer.zero_grad()
-
-        loss = self.criterion(target,pred)
-        loss.backward()
-
-        self.optimizer.step()
-
-    def get_action(self, state):
-        final_move = [0,0,0,0]
-        if random.randint(0,200) < (80 - self.n_games):
-            move = random.randint(0,3)
-        else:
-            state_vec = torch.tensor(state,dtype=torch.float)
-            prediction = self.model(state_vec)
-
-            move = torch.argmax(prediction).item()
-        final_move[move] = 1
-        return final_move

@@ -9,7 +9,9 @@ import random
 
 from defs import *
 from ghost import Ghost
-from navigable_edge import NavigableEdge    
+from path_node import PathNode  
+
+import time
 
 ## TODO: Make ManPac his own class.
 
@@ -38,21 +40,20 @@ class Game:
         self._object_layer = np.copy(self._ghost_layer)
 
         self.score = 0
-        self._edge_dict: Dict[CoordinatePair, NavigableEdge] = {}
+        self._edge_dict: Dict[CoordinatePair, PathNode] = {}
 
         # Create a list of indices that are pathable
         x_set, y_set = np.where(self._ghost_layer != Tiles.WALL)
         for i in range(len(x_set)):
             valid_coords = CoordinatePair(x_set[i],y_set[i])
 
-            path_tile = NavigableEdge(valid_coords)
+            path_tile = PathNode(valid_coords)
             self._edge_dict[valid_coords] = path_tile
 
         # Set the neighbors of each node for quicker access
         for coords, node in self._edge_dict.items():
             neighbor_coords = self._get_neighbors(coords)
-            neighbor_tiles = [self._edge_dict[coords] for coords in neighbor_coords]
-            
+            neighbor_tiles = tuple([self._edge_dict[coords] for coords in neighbor_coords])
             node.set_neighbors(neighbor_tiles)
 
         powerup_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.FREE)))
@@ -108,6 +109,8 @@ class Game:
                 ghost.set_path(new_path)
 
         game_status = self._process_ai_turn()
+        if game_status == GameStatus.GAME_OVER:
+            return GameStatus.GAME_OVER, -10
         
         ghost_positions = set([ghost.get_position() for ghost in self._ghosts])
         
@@ -124,8 +127,11 @@ class Game:
 
         if game_status == GameStatus.GAME_OVER:
             return game_status, -10
-            
+        
         reward, game_status = self._process_player_turn(player_move)
+        if reward > 0:
+            self.score += reward
+
         return game_status, reward
     
 
@@ -150,13 +156,30 @@ class Game:
                 
                 if new_pos == last_pos or not ghost.is_busy:
 
-                    path = self._find_path(last_pos)
-                    ghost.set_path(path)
+                    if math.dist(new_pos, self._manpac_position) < 2:
+                        moves = self._get_neighbors(new_pos)
+                        moves = sorted(moves, key=lambda x: math.dist(x,self._manpac_position))
+
+                        new_pos = moves[0]
+                        ghost.set_position(new_pos)
+                    else:
+                        start = time.time()
+                        path = self._find_path(last_pos)
                     
-                    new_pos = ghost.move_along_path()
+                    
+                        ghost.set_path(path)
+                        end = time.time()
+                        elapsed_time = end - start
+                    
+                        if elapsed_time > 1:
+                            print(path)
+                        else:
+                            print(elapsed_time)
+                        new_pos = ghost.move_along_path()
+
                     self._update_ghost_coordinates(last_pos, new_pos)
 
-                elif new_pos != last_pos:
+                else:
 
                     self._update_ghost_coordinates(last_pos, new_pos)
 
@@ -187,7 +210,7 @@ class Game:
         updated_x = self._manpac_position.x + direction.x
         updated_y = self._manpac_position.y + direction.y
         
-        grid_value = self._object_layer[updated_x, updated_y]
+        grid_value = self._ghost_layer[updated_x, updated_y]
         position = CoordinatePair(updated_x, updated_y)
 
         reward = 0
@@ -215,9 +238,11 @@ class Game:
             reward = 5
 
         elif grid_value == Tiles.POINT:
-            self._object_layer[updated_x, updated_y] = Tiles.FREE
+            self._default_layer[updated_x, updated_y] = Tiles.FREE
             reward = 1
         # Update coordinates
+        self._object_layer[self._manpac_position.x, self._manpac_position.y] = \
+            self._default_layer[self._manpac_position.x,self._manpac_position.y]
         self._ghost_layer[self._manpac_position.x, self._manpac_position.y] = \
             self._default_layer[self._manpac_position.x,self._manpac_position.y]
         self._manpac_position = position
@@ -234,7 +259,9 @@ class Game:
     def _get_panic_move(self, position: CoordinatePair) -> None | CoordinatePair:
        
         moves = self._get_neighbors(position)
-        moves = sorted(moves,key=lambda x: math.dist(x,self._manpac_position),reverse=True)
+        moves = sorted(moves,
+                       key=lambda x: math.dist(x,self._manpac_position),
+                       reverse=True)
         if not moves:
             return None
         return moves[0] 
@@ -304,13 +331,15 @@ class Game:
         @param "start" A CoordinatePair indicating the initial position.
 
         @return Calls "_backtrack()" to return a list of CoordinatePairs as path from "start" to ManPac.
-    '''     
+    '''   
+
+    ## TODO: Reimplement using dynamic programming  
     def _find_path(self, start: CoordinatePair) -> List[CoordinatePair]:
 
         init_edge = self._edge_dict[start]
 
-        open_list: List[NavigableEdge] = [init_edge]
-        closed_list: List[NavigableEdge] = []
+        open_list: List[PathNode] = [init_edge]
+        closed_list: List[PathNode] = []
         while open_list:
 
             current = open_list.pop(0)
@@ -318,13 +347,15 @@ class Game:
                 return self._backtrack(current)
             
             closed_list.append(current)
-            neighbors: List[NavigableEdge] = [
-                n for n in current.get_neighbors() \
-                if n not in closed_list]
+            neighbors = current.get_neighbors()
             
             for neighbor in neighbors:
+
+                if neighbor in closed_list:
+                    continue
+
                 temp_g_cost = current.g_cost + 1
-                temp_h_cost = math.dist(neighbor.position, self._manpac_position)
+                temp_h_cost = math.dist(neighbor.position,self._manpac_position)
                 temp_f_cost = temp_g_cost + temp_h_cost
                 
                 ol_found_node = self._find_node(open_list,neighbor.position)
@@ -341,13 +372,13 @@ class Game:
     
     '''
         @method _backtrack()
-        @description Iterates through the parent nodes of a NavigableEdge until None is found.
+        @description Iterates through the parent nodes of a PathNode until None is found.
 
-        @param "n_edge" A NavigableEdge (passed at the end of "_find_path()")
+        @param "n_edge" A PathNode (passed at the end of "_find_path()")
 
         @return A list of every position along "n_edge" path
     '''     
-    def _backtrack(self,n_edge: NavigableEdge) -> List[CoordinatePair]:
+    def _backtrack(self,n_edge: PathNode) -> List[CoordinatePair]:
         result = []
         next = n_edge
         while next:
@@ -363,12 +394,12 @@ class Game:
         @method _find_node()
         @description Finds a node with position "position" in an ordered list
 
-        @param "search_list" A list of NavigableEdges on which search is performed
+        @param "search_list" A list of PathNodes on which search is performed
         @param "position" A CoordinatePair (int tuple) that will be searched for in "search_list"
 
-        @return The NavigableEdge whose position is "position" if found, else none.
+        @return The PathNode whose position is "position" if found, else none.
     '''       
-    def _find_node(self, search_list: List[NavigableEdge], position: CoordinatePair) -> None | NavigableEdge:
+    def _find_node(self, search_list: List[PathNode], position: CoordinatePair) -> None | PathNode:
         for edge in search_list:
             if edge.position == position:
                 return edge
@@ -376,12 +407,12 @@ class Game:
     
     '''
         @method _priority_insert()
-        @description Inserts a NavigableEdge node into a list based on its f_cost
+        @description Inserts a PathNode node into a list based on its f_cost
 
-        @param "src" The NavigableEdge node to insert
+        @param "src" The PathNode node to insert
         @param "dst" The list in which to insert "src"
     '''     
-    def _priority_insert(self, src: NavigableEdge, dst: List[NavigableEdge]) -> None:
+    def _priority_insert(self, src: PathNode, dst: List[PathNode]) -> None:
         
         # Insert dst at the last position if it has the highest f_cost
         trg_idx = -1
@@ -399,7 +430,7 @@ class Game:
 
         @return A list of valid neighbors for "position"
     '''     
-    def _get_adjacent_cells(self, position: CoordinatePair) -> List[CoordinatePair]:
+    def _get_adjacent_cells(self, position: CoordinatePair) -> Tuple[CoordinatePair]:
 
         adjacent_cells = [
             CoordinatePair(position.x + 1, position.y), 
@@ -407,12 +438,12 @@ class Game:
             CoordinatePair(position.x, position.y + 1),
             CoordinatePair(position.x, position.y - 1)
         ]
-        adjacent_cells = [(pos, self._object_layer[pos.x,pos.y]) for pos in adjacent_cells \
-                          if pos.x > 0 and pos.x < self._ghost_layer.shape[0] \
-                          and pos.y > 0 and pos.y < self._ghost_layer.shape[1]]
+        adjacent_cells = tuple([(pos, self._object_layer[pos.x,pos.y]) for pos in adjacent_cells \
+                          if pos.x >= 0 and pos.x < self._ghost_layer.shape[0] \
+                          and pos.y >= 0 and pos.y < self._ghost_layer.shape[1]])
         return adjacent_cells
 
     def _get_neighbors(self, position: CoordinatePair) -> List[CoordinatePair]:
         adjacent_coords = self._get_adjacent_cells(position)
-        neighbors = [n for n, val in adjacent_coords if val != Tiles.WALL]
+        neighbors = (n for n, val in adjacent_coords if val != Tiles.WALL)
         return neighbors
