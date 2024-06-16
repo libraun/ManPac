@@ -1,11 +1,11 @@
 import random
-from DataViewer import StateMemory
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-BATCH_SIZE = 256
+from StateViewer import StateMemory
+from defs import BATCH_SIZE
 
 class Agent:
 
