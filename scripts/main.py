@@ -1,3 +1,5 @@
+import pygame as pg
+
 from Game import Game
 from defs import EXIT_CODES, CoordinatePair, Tiles
 
@@ -6,8 +8,6 @@ from Model import Model
 from agent import Agent
 
 DEBUG_ON = True
-
-import pygame as pg
 
 if DEBUG_ON:
 
@@ -46,11 +46,8 @@ if DEBUG_ON:
                 
                 else:
                     pg.draw.rect(SCREEN, COLORS[cell_value], rect)
-
         manpac_position = ENV.get_manpac_position()
         manpac_rect = pg.Rect(manpac_position.y * BLOCKSIZE,manpac_position.x * BLOCKSIZE,BLOCKSIZE,BLOCKSIZE)
-
-      #  print(env.)
         pg.draw.rect(SCREEN, COLORS[1], rect)
         pg.draw.ellipse(SCREEN, COLORS[5], manpac_rect, 0)
         pg.display.flip()
@@ -100,6 +97,7 @@ if __name__ == "__main__":
         
         agent.state_memory.push(last_state,final_state,action,reward,game_status)
         if game_status == GameStatus.GAME_OVER:
+
             agent.train()
             agent.n_games += 1
             if ENV.score > top_score:
