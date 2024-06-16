@@ -78,7 +78,7 @@ if __name__ == "__main__":
     ENV = Game()
     state_viewer = DataViewer(ENV)
 
-    model = Model(in_features=21, out_features=4, hidden_dim=256)
+    model = Model(in_features=22, out_features=4, hidden_dim=256)
     agent = Agent(model=model,state_memory=StateMemory())
 
     if DEBUG_ON:
@@ -116,6 +116,6 @@ if __name__ == "__main__":
                 ENV.reset()
         if DEBUG_ON:
             draw_map()
-            clock.tick(50)
+            clock.tick(TICKS_PER_SECOND)
 
     exit(EXIT_CODES.EXIT_SUCCESS)

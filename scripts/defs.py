@@ -1,6 +1,6 @@
 from typing import Tuple, NamedTuple, List, Dict, Sequence
 
-from enum import Enum
+#from enum import Enum
 
 ## TYPES ##
 class TransitionMemory(NamedTuple):
@@ -55,7 +55,7 @@ DIRECTIONS = (
 ## TRAINING ##
 
 MAX_MEMORY = 100000
-BATCH_SIZE = 128
+BATCH_SIZE = 500
 
 ## ETC ##
 
@@ -63,3 +63,5 @@ WINDOW_WIDTH = 620
 WINDOW_HEIGHT = 620
 
 BLOCKSIZE = 20
+
+TICKS_PER_SECOND = 60
