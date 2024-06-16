@@ -12,15 +12,18 @@ class Model(nn.Module):
         
         super(Model, self).__init__()
 
-        self.layer1 = nn.Linear(in_features, hidden_dim)
-        self.layer2 = nn.Linear(hidden_dim, out_features)
+        self.input_layer = nn.Linear(in_features, hidden_dim)
+        self.hidden_layer = nn.Linear(hidden_dim, hidden_dim)
+        self.output_layer = nn.Linear(hidden_dim, out_features)
 
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
 
-        x = self.layer1(x)
-        x = self.dropout(x)
-        x = self.layer2(F.relu(x))
+        x = self.input_layer(x)
+        x = self.hidden_layer(x)
+
+     #   x = self.dropout(x)
+        x = self.output_layer(F.relu(x))
 
         return x
