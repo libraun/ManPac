@@ -7,6 +7,8 @@ import math
 import numpy as np
 import random
 
+import heapq
+
 from defs import *
 from ghost import Ghost
 from path_node import PathNode  
@@ -40,21 +42,12 @@ class Game:
         self._object_layer = np.copy(self._ghost_layer)
 
         self.score = 0
-        self._edge_dict: Dict[CoordinatePair, PathNode] = {}
-
-        # Create a list of indices that are pathable
-        x_set, y_set = np.where(self._ghost_layer != Tiles.WALL)
-        for i in range(len(x_set)):
-            valid_coords = CoordinatePair(x_set[i],y_set[i])
-
-            path_tile = PathNode(valid_coords)
-            self._edge_dict[valid_coords] = path_tile
 
         # Set the neighbors of each node for quicker access
-        for coords, node in self._edge_dict.items():
-            neighbor_coords = self._get_neighbors(coords)
-            neighbor_tiles = tuple([self._edge_dict[coords] for coords in neighbor_coords])
-            node.set_neighbors(neighbor_tiles)
+       # for coords, node in self._edge_dict.items():
+         #   neighbor_coords = self._get_neighbors(coords)
+        #    neighbor_tiles = tuple([self._edge_dict[coords] for coords in neighbor_coords])
+         #   node.set_neighbors(neighbor_tiles)
 
         powerup_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.FREE)))
         for powerup_spawn_coord in random.sample(powerup_spawn_coords, MAX_POWERUPS):
@@ -156,8 +149,8 @@ class Game:
                 
                 if new_pos == last_pos or not ghost.is_busy:
 
-                    if math.dist(new_pos, self._manpac_position) < 2:
-                        moves = self._get_neighbors(new_pos)
+                    if math.dist(new_pos, self._manpac_position) < 1.5:
+                        moves = self._get_neighbors(new_pos.x,new_pos.y)
                         moves = sorted(moves, key=lambda x: math.dist(x,self._manpac_position))
 
                         new_pos = moves[0]
@@ -171,10 +164,8 @@ class Game:
                         end = time.time()
                         elapsed_time = end - start
                     
-                        if elapsed_time > 1:
-                            print(path)
-                        else:
-                            print(elapsed_time)
+                        
+                        print(elapsed_time)
                         new_pos = ghost.move_along_path()
 
                     self._update_ghost_coordinates(last_pos, new_pos)
@@ -258,7 +249,7 @@ class Game:
     '''     
     def _get_panic_move(self, position: CoordinatePair) -> None | CoordinatePair:
        
-        moves = self._get_neighbors(position)
+        moves = self._get_neighbors(position.x, position.y)
         moves = sorted(moves,
                        key=lambda x: math.dist(x,self._manpac_position),
                        reverse=True)
@@ -332,42 +323,61 @@ class Game:
 
         @return Calls "_backtrack()" to return a list of CoordinatePairs as path from "start" to ManPac.
     '''   
-
     ## TODO: Reimplement using dynamic programming  
     def _find_path(self, start: CoordinatePair) -> List[CoordinatePair]:
 
-        init_edge = self._edge_dict[start]
+        node_data = np.array([[PathNode() for _ in row]
+                               for row in self._ghost_layer],
+                               dtype=PathNode)
+        closed_list = np.array([[False for _ in row] 
+                                for row in self._ghost_layer],
+                                dtype=bool)
+        open_list = []
 
-        open_list: List[PathNode] = [init_edge]
-        closed_list: List[PathNode] = []
+        node_data[start.x, start.y].f_cost = 0
+        node_data[start.x,start.y].g_cost = 0
+        node_data[start.x, start.y].h_cost = 0
+        
+        heapq.heappush(open_list, (float('inf'), start.x, start.y))
         while open_list:
 
-            current = open_list.pop(0)
-            if current.position == self._manpac_position:
-                return self._backtrack(current)
-            
-            closed_list.append(current)
-            neighbors = current.get_neighbors()
-            
-            for neighbor in neighbors:
+            _, current_x, current_y = heapq.heappop(open_list)
+            closed_list[current_x, current_y] = True
 
-                if neighbor in closed_list:
+            neighbors = self._get_neighbors(current_x, current_y)
+            
+            for neighbor_pos in neighbors:
+
+                if closed_list[neighbor_pos.x, neighbor_pos.y] is True:
                     continue
 
-                temp_g_cost = current.g_cost + 1
-                temp_h_cost = math.dist(neighbor.position,self._manpac_position)
+                elif neighbor_pos == self._manpac_position:
+
+                    node_data[neighbor_pos.x, neighbor_pos.y].parent_x = current_x
+                    node_data[neighbor_pos.x, neighbor_pos.y].parent_y = current_y
+
+                    return self._backtrack(node_data[neighbor_pos.x,neighbor_pos.y],start,node_data)
+             
+                
+                temp_g_cost = node_data[neighbor_pos.x, neighbor_pos.y].g_cost + 1.0
+                temp_h_cost = math.dist(neighbor_pos,self._manpac_position)
                 temp_f_cost = temp_g_cost + temp_h_cost
                 
-                ol_found_node = self._find_node(open_list,neighbor.position)
-                if ol_found_node and ol_found_node.f_cost < temp_f_cost:
-                    continue
+                open_list_equivalent_cost = node_data[neighbor_pos.x,neighbor_pos.y].f_cost
 
-                neighbor.g_cost = temp_g_cost
-                neighbor.h_cost = temp_h_cost
-                neighbor.f_cost = temp_f_cost
+                if open_list_equivalent_cost == float('inf') or open_list_equivalent_cost > temp_f_cost:
+                    
+                    heapq.heappush(open_list, (temp_f_cost, neighbor_pos.x, neighbor_pos.y))
+                    
+                    node_data[neighbor_pos.x, neighbor_pos.y].g_cost = temp_g_cost
+                    node_data[neighbor_pos.x, neighbor_pos.y].h_cost = temp_h_cost
+                    node_data[neighbor_pos.x, neighbor_pos.y].f_cost = temp_f_cost
 
-                neighbor.set_parent(current)
-                self._priority_insert(neighbor, open_list)
+                    node_data[neighbor_pos.x, neighbor_pos.y].parent_x = current_x
+                    node_data[neighbor_pos.x, neighbor_pos.y].parent_y = current_y
+
+                
+
 
     
     '''
@@ -378,17 +388,17 @@ class Game:
 
         @return A list of every position along "n_edge" path
     '''     
-    def _backtrack(self,n_edge: PathNode) -> List[CoordinatePair]:
+    def _backtrack(self, n_edge, start, node_data) -> List[CoordinatePair]:
         result = []
         next = n_edge
-        while next:
-            result.insert(0,next.position)
-            next = next.get_parent()
-
-            n_edge.reset()
-            n_edge = next
+        
+        while CoordinatePair(next.parent_x,next.parent_y) != start:
             
-        result.pop(0)
+            result.append(CoordinatePair(next.parent_x, next.parent_y))
+            next = node_data[next.parent_x, next.parent_y]
+            
+            n_edge = next
+        result.reverse()
         return result
     '''
         @method _find_node()
@@ -412,7 +422,7 @@ class Game:
         @param "src" The PathNode node to insert
         @param "dst" The list in which to insert "src"
     '''     
-    def _priority_insert(self, src: PathNode, dst: List[PathNode]) -> None:
+    def _priority_insert(self, dst: List[PathNode], src: PathNode) -> None:
         
         # Insert dst at the last position if it has the highest f_cost
         trg_idx = -1
@@ -430,20 +440,20 @@ class Game:
 
         @return A list of valid neighbors for "position"
     '''     
-    def _get_adjacent_cells(self, position: CoordinatePair) -> Tuple[CoordinatePair]:
+    def _get_adjacent_cells(self, x: int, y: int) -> Tuple[CoordinatePair]:
 
         adjacent_cells = [
-            CoordinatePair(position.x + 1, position.y), 
-            CoordinatePair(position.x - 1, position.y),
-            CoordinatePair(position.x, position.y + 1),
-            CoordinatePair(position.x, position.y - 1)
+            CoordinatePair(x + 1, y), 
+            CoordinatePair(x - 1, y),
+            CoordinatePair(x, y + 1),
+            CoordinatePair(x, y - 1)
         ]
-        adjacent_cells = tuple([(pos, self._object_layer[pos.x,pos.y]) for pos in adjacent_cells \
+        adjacent_cells = tuple([(pos, self._ghost_layer[pos.x,pos.y]) for pos in adjacent_cells \
                           if pos.x >= 0 and pos.x < self._ghost_layer.shape[0] \
                           and pos.y >= 0 and pos.y < self._ghost_layer.shape[1]])
         return adjacent_cells
 
-    def _get_neighbors(self, position: CoordinatePair) -> List[CoordinatePair]:
-        adjacent_coords = self._get_adjacent_cells(position)
+    def _get_neighbors(self, x: int, y: int) -> List[CoordinatePair]:
+        adjacent_coords = self._get_adjacent_cells(x,y)
         neighbors = (n for n, val in adjacent_coords if val != Tiles.WALL)
         return neighbors
