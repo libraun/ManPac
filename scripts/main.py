@@ -1,21 +1,17 @@
 from Game import Game
 from defs import EXIT_CODES, CoordinatePair, Tiles
 
-from DataViewer import *
+from StateViewer import *
 from Model import Model
 from agent import Agent
 
 DEBUG_ON = True
 
+import pygame as pg
+
 if DEBUG_ON:
 
-    import pygame as pg
-
-    WINDOW_WIDTH = 620  
-    WINDOW_HEIGHT = 620
-
-    BLOCKSIZE = 20
-
+    ## Urgent TODO: Fix all this
     COLORS = (
         pg.Color((255,255,255)),
         pg.Color((200,200,200)),
@@ -28,7 +24,6 @@ if DEBUG_ON:
         pg.Color((255,0,0)),
         pg.Color((255,0,0)),
     )
-
     def draw_map():
         global SCREEN,ENV
         SCREEN.fill((0,0,0))
@@ -38,8 +33,6 @@ if DEBUG_ON:
 
                 rect = pg.Rect(x, y, BLOCKSIZE, BLOCKSIZE)
                 pg.draw.rect(SCREEN, pg.Color((200,200,200)), rect,1)
-        
-        ## TODO: Tidy this up...
         for i, row in enumerate(ENV.get_map().T):
             for j, cell_value in enumerate(row):
                 rect = pg.Rect(i*BLOCKSIZE, j*BLOCKSIZE, \
@@ -76,7 +69,7 @@ DEBUG_ON = True
 if __name__ == "__main__":
 
     ENV = Game()
-    state_viewer = DataViewer(ENV)
+    state_viewer = StateViewer(ENV)
 
     model = Model(in_features=22, out_features=4, hidden_dim=256)
     agent = Agent(model=model,state_memory=StateMemory())
