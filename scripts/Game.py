@@ -1,80 +1,78 @@
 import math
 
-import os
-import os.path 
 import cv2
 import math
 import numpy as np
 import random
+import os
 
 import heapq
 
 from defs import *
-from ghost import Ghost
-from path_node import PathNode  
 
-import time
-
-## TODO: Make ManPac his own class.
-
-## TODO: rewrite all this code so it isnt hanging together by patch tape and bits of string
 class Game:
-    def __init__(self):
+
+    def __init__(self, max_ghosts: int=4,
+                 max_powerups: int=3,
+                 coin_coverage: float=0.5):
+
+        self.max_ghosts = max_ghosts
+        self.max_powerups = max_powerups
+
+        # The percentage of coins that should (ideally) cover free tiles
+        # at the start of the game
+        self.coin_coverage = coin_coverage
+
+        bitmap = cv2.imread(MAP_FILENAME,cv2.IMREAD_GRAYSCALE)
+        self.init_map = np.array(bitmap,dtype=np.short)
 
         self.reset()
 
     def reset(self) -> None:
-        map_loaded = self._load_ghost_layer(MAP_FILENAME)
-        assert map_loaded, exit(EXIT_CODES.EXIT_FAILURE)
+
+        self.map = []
+        for row in self.init_map:
+            new_row = []
+            for value in row:
+                if value == 0:
+                    new_row.append(TileObject(is_wall=True))
+                elif value == 127 or value == 255:
+                    new_row.append(TileObject(is_wall=False))
+            self.map.append(new_row)
         
         # Keep a copy of playable map for easy reassignment after moves
-        self._default_layer = np.copy(self._ghost_layer)
         # Grab available spawn coordinates
-        ghost_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.SPAWN)))
-        ghost_spawn_coords = [CoordinatePair(i[0], i[1]) for i in ghost_spawn_coords[:MAX_GHOSTS]]
+        ghost_spawn_coords = list(zip(*np.where(self.init_map == 127)))
+        ghost_spawn_coords = [CoordinatePair(i[0], i[1]) for i in ghost_spawn_coords[:self.max_ghosts]]
         
         # Initialize list of ghosts, mapping position of ghost to ghost object
-        self._ghosts: Sequence[Ghost] = np.array([None for i in range(MAX_GHOSTS)],dtype=Ghost)
-        for i, g_spawn_coord in enumerate(ghost_spawn_coords):
-            self._ghost_layer[g_spawn_coord.x,g_spawn_coord.y] = Tiles.GHOST
-            self._ghosts[i] = Ghost(g_spawn_coord) 
-        
-        self._object_layer = np.copy(self._ghost_layer)
+        self.ghosts = [Ghost(spawn_coord) for spawn_coord in ghost_spawn_coords]
+        for spawn_x, spawn_y in ghost_spawn_coords:
+            self.map[spawn_x][spawn_y].has_ghost = True
 
-        self.score = 0
-
-        # Set the neighbors of each node for quicker access
-       # for coords, node in self._edge_dict.items():
-         #   neighbor_coords = self._get_neighbors(coords)
-        #    neighbor_tiles = tuple([self._edge_dict[coords] for coords in neighbor_coords])
-         #   node.set_neighbors(neighbor_tiles)
-
-        powerup_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.FREE)))
-        for powerup_spawn_coord in random.sample(powerup_spawn_coords, MAX_POWERUPS):
-            self._ghost_layer[powerup_spawn_coord[0], powerup_spawn_coord[1]] = Tiles.POWERUP
+        powerup_spawn_coords = list(zip(*np.where(self.init_map == 255)))
+        for x_coord, y_coord in random.sample(powerup_spawn_coords, self.max_powerups):
+            self.map[x_coord][y_coord].has_powerup = True
         
-        point_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.FREE)))
-        
+        point_spawn_coords = list(zip(*np.where(self.init_map == 255)))
         # Multiply number of potential spawn coords by ratio of points to free area
         # to get initial number of points
-        number_points = math.floor(len(point_spawn_coords) * POINT_COVERAGE)
-        for point_spawn_coord in random.sample(point_spawn_coords, number_points):
-            self._ghost_layer[point_spawn_coord[0], point_spawn_coord[1]] = Tiles.POINT
+        number_points = math.floor(len(point_spawn_coords) * self.coin_coverage)
+        for x_coord, y_coord in random.sample(point_spawn_coords, number_points):
+            if not self.map[x_coord][y_coord].has_powerup:
+                self.map[x_coord][y_coord].has_coin = True
 
-        self._manpac_position: CoordinatePair = INIT_MANPAC_POSITION 
-        self._manpac_direction: CoordinatePair = INIT_MANPAC_DIRECTION # Last ManPac direction
+        self._manpac_position = INIT_MANPAC_POSITION 
+        self._manpac_direction = INIT_MANPAC_DIRECTION # Last ManPac direction
         
         self._invincible_pac: bool = False # Whether or not player is invincible
         self._invincible_ticks: int = 0
 
-        self._object_layer[INIT_MANPAC_POSITION.x,INIT_MANPAC_POSITION.y] = Tiles.MANPAC
+        for ghost in self.ghosts:
+            ghost.path = self._find_path(ghost.position)
 
-        for ghost in self._ghosts:
-            init_path = self._find_path(ghost.get_position())
-            ghost.set_path(init_path)
-
-    def get_map(self) -> np.ndarray:
-        return self._ghost_layer
+    def get_map(self):
+        return self.map
     
     def get_manpac_position(self) -> CoordinatePair:
         return self._manpac_position
@@ -86,7 +84,7 @@ class Game:
 
         @return The current running state of the game after the ghost's turn.
     '''     
-    def play_step(self, player_move: CoordinatePair, replay: bool=False) -> GameStatus:
+    def play_step(self, player_move: CoordinatePair) -> GameStatus:
 
         # Update the tick counter if ManPac is invincible
         if self._invincible_pac and self._invincible_ticks < MAX_INVINCIBILITY_TICKS:
@@ -97,33 +95,14 @@ class Game:
             self._invincible_pac = False
             self._invincible_ticks = 0
 
-            for ghost in self._ghosts:
-                new_path = self._find_path(ghost.get_position())
-                ghost.set_path(new_path)
+            for ghost in self.ghosts:
+                ghost.path = self._find_path(ghost.position)
 
         game_status = self._process_ai_turn()
         if game_status == GameStatus.GAME_OVER:
-            return GameStatus.GAME_OVER, -10
-        
-        ghost_positions = set([ghost.get_position() for ghost in self._ghosts])
-        
-        old_ghost_positions = set([CoordinatePair(coord[0],coord[1]) for coord in zip(*np.where(self._ghost_layer >= Tiles.GHOST))])
-        freed_coords = ghost_positions.difference(old_ghost_positions)
-
-        for position in freed_coords:
-            self._ghost_layer[position.x, position.y] = self._object_layer[position.x,position.y]
-
-        for position in ghost_positions:
-            if position == self._manpac_position:
-                return GameStatus.GAME_OVER, -10
-            #self._update_ghost_coordinates(position)
-
-        if game_status == GameStatus.GAME_OVER:
-            return game_status, -10
+            return GameStatus.GAME_OVER, -5
         
         reward, game_status = self._process_player_turn(player_move)
-        if reward > 0:
-            self.score += reward
 
         return game_status, reward
     
@@ -137,8 +116,8 @@ class Game:
     '''     
     def _process_ai_turn(self) -> GameStatus:
  
-        for ghost in self._ghosts:
-            last_pos = ghost.get_position()
+        for ghost in self.ghosts:
+            last_pos = ghost.position
             # Player is NOT invincible, find path to it
             if not self._invincible_pac:
                 
@@ -146,8 +125,7 @@ class Game:
                 if last_pos == self._manpac_position:
                     
                     return GameStatus.GAME_OVER
-                
-                if new_pos == last_pos or not ghost.is_busy:
+                elif new_pos == last_pos or not ghost.is_busy:
 
                     if math.dist(new_pos, self._manpac_position) < 1.5:
                         moves = self._get_neighbors(new_pos.x,new_pos.y)
@@ -156,30 +134,25 @@ class Game:
                         new_pos = moves[0]
                         ghost.set_position(new_pos)
                     else:
-                        start = time.time()
-                        path = self._find_path(last_pos)
-                    
-                    
-                        ghost.set_path(path)
-                        end = time.time()
-                        elapsed_time = end - start
-                    
-                        
-                        print(elapsed_time)
+        
+                        ghost.path = self._find_path(last_pos)
                         new_pos = ghost.move_along_path()
 
-                    self._update_ghost_coordinates(last_pos, new_pos)
-
-                else:
-
-                    self._update_ghost_coordinates(last_pos, new_pos)
+                self.map[last_pos.x][ last_pos.y].has_ghost = False
+                self.map[new_pos.x][new_pos.y].has_ghost = True
 
             # manpac is invincible; get furthest position from it and set manaully
             else: 
                 new_pos = self._get_panic_move(last_pos)
                 if new_pos != last_pos:   
                     ghost.set_position(new_pos)
-                    self._update_ghost_coordinates(last_pos,new_pos)
+    
+                    self.map[last_pos.x] [last_pos.y].has_ghost = False
+    
+                    if self.map[new_pos.x][new_pos.y].has_manpac:
+                        self._respawn_ghost(ghost)
+                    else:
+                        self.map[new_pos.x] [new_pos.y].has_ghost = True
 
         return GameStatus.GAME_RUNNING
     
@@ -201,44 +174,44 @@ class Game:
         updated_x = self._manpac_position.x + direction.x
         updated_y = self._manpac_position.y + direction.y
         
-        grid_value = self._ghost_layer[updated_x, updated_y]
+        grid_value = self.map[updated_x][updated_y]
         position = CoordinatePair(updated_x, updated_y)
 
         reward = 0
-        if grid_value == Tiles.WALL:
+        # Player has struck a wall; nothing happens.
+        if grid_value.is_wall is True:
             return reward, GameStatus.GAME_RUNNING
             
-        elif grid_value >= Tiles.GHOST and self._invincible_pac:
+        # Player is invincible and has struck a ghost; kills ghost.
+        if grid_value.has_ghost and self._invincible_pac:
             target_ghost = None
-            for ghost in self._ghosts:  
-                if ghost.get_position() == position:
+            for ghost in self.ghosts:  
+                if ghost.position == position:
                     target_ghost = ghost
                     break
 
             assert target_ghost != None 
             self._respawn_ghost(target_ghost)
-            reward = 10
+            reward = 1
 
-        elif grid_value >= Tiles.GHOST:
-            return -10, GameStatus.GAME_OVER
+        # Player is NOT invincible and has struck a ghost; return gameover
+        elif grid_value.has_ghost:
+            return -5, GameStatus.GAME_OVER
 
-        elif grid_value == Tiles.POWERUP:
+        elif grid_value.has_powerup:
             self._invincible_pac = True
             self._invincible_ticks = 0
 
             reward = 5
 
-        elif grid_value == Tiles.POINT:
-            self._default_layer[updated_x, updated_y] = Tiles.FREE
+        elif grid_value.has_coin:
+            self.map[updated_x][updated_y].has_coin = False
             reward = 1
-        # Update coordinates
-        self._object_layer[self._manpac_position.x, self._manpac_position.y] = \
-            self._default_layer[self._manpac_position.x,self._manpac_position.y]
-        self._ghost_layer[self._manpac_position.x, self._manpac_position.y] = \
-            self._default_layer[self._manpac_position.x,self._manpac_position.y]
+        # Update coordinates, removing ManPac from last position and setting him to new position
+        self.map[self._manpac_position.x][self._manpac_position.y].has_manpac = False
         self._manpac_position = position
 
-        self._object_layer[position.x, position.y] = Tiles.MANPAC
+        self.map[position.x][position.y].has_manpac = True
         return reward, GameStatus.GAME_RUNNING
     
     '''
@@ -264,56 +237,11 @@ class Game:
         @param "ghost" The ghost to be respawned
     '''     
     def _respawn_ghost(self, ghost: Ghost) -> None:
-        ghost_spawn_coords = list(zip(*np.where(self._ghost_layer == Tiles.SPAWN)))
+        ghost_spawn_coords = list(zip(*np.where(self.init_map == 127)))
         spawn_coord = random.choice(ghost_spawn_coords)
 
         ghost.set_position(CoordinatePair(spawn_coord[0],spawn_coord[1]))
         ghost.reset()
-    
-
-    ## TODO: Rewrite this to use new 
-    def _update_ghost_coordinates(self, last_pos: CoordinatePair, new_pos: CoordinatePair):
-        last_cell_value = self._ghost_layer[last_pos.x,last_pos.y]
-        new_cell_value = self._ghost_layer[new_pos.x, new_pos.y]
-
-        if new_cell_value == Tiles.POINT:
-            self._ghost_layer[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POINT
-        elif new_cell_value == Tiles.POWERUP:
-            self._ghost_layer[new_pos.x, new_pos.y] = Tiles.GHOST_PLUS_POWERUP
-        else:   
-            self._ghost_layer[new_pos.x, new_pos.y] = Tiles.GHOST
-        
-        if last_cell_value == Tiles.GHOST_PLUS_POINT:
-            self._ghost_layer[last_pos.x, last_pos.y] = Tiles.POINT
-        elif last_cell_value == Tiles.GHOST_PLUS_POWERUP:
-            self._ghost_layer[last_pos.x, last_pos.y] = Tiles.POWERUP
-        else:
-            self._ghost_layer[last_pos.x, last_pos.y] = self._default_layer[last_pos.x, last_pos.y]
-
-    '''
-        @method _load_ghost_layer()
-        @description Loads a numpy array as the game map from an image file.
-
-        @param "filename" The name or path of the image file to use as a map.
-
-        @return True if map loaded successfully else False.
-    '''    
-    def _load_ghost_layer(self, filename: str) -> bool:
-        
-        if not os.path.isfile(filename):
-            return False
-    
-        bitmap = cv2.imread(filename,cv2.IMREAD_GRAYSCALE)
-        if bitmap is None:
-            return False
-
-        self._ghost_layer = np.array(bitmap,dtype=int)
-
-        # Reassign arbitrary color values
-        self._ghost_layer[self._ghost_layer == 127] = Tiles.SPAWN
-        self._ghost_layer[self._ghost_layer == 255] = Tiles.FREE
-
-        return self._ghost_layer is not None
     
     '''
         @method _find_path()
@@ -326,11 +254,11 @@ class Game:
     ## TODO: Reimplement using dynamic programming  
     def _find_path(self, start: CoordinatePair) -> List[CoordinatePair]:
 
-        node_data = np.array([[PathNode() for _ in row]
-                               for row in self._ghost_layer],
+        node_data = np.array([[PathNode((x,row)) for x in row]
+                               for row in self.map],
                                dtype=PathNode)
         closed_list = np.array([[False for _ in row] 
-                                for row in self._ghost_layer],
+                                for row in self.map],
                                 dtype=bool)
         open_list = []
 
@@ -351,7 +279,8 @@ class Game:
                 if closed_list[neighbor_pos.x, neighbor_pos.y] is True:
                     continue
 
-                elif neighbor_pos == self._manpac_position:
+                if neighbor_pos == self._manpac_position:
+
 
                     node_data[neighbor_pos.x, neighbor_pos.y].parent_x = current_x
                     node_data[neighbor_pos.x, neighbor_pos.y].parent_y = current_y
@@ -365,8 +294,8 @@ class Game:
                 
                 open_list_equivalent_cost = node_data[neighbor_pos.x,neighbor_pos.y].f_cost
 
+
                 if open_list_equivalent_cost == float('inf') or open_list_equivalent_cost > temp_f_cost:
-                    
                     heapq.heappush(open_list, (temp_f_cost, neighbor_pos.x, neighbor_pos.y))
                     
                     node_data[neighbor_pos.x, neighbor_pos.y].g_cost = temp_g_cost
@@ -400,37 +329,7 @@ class Game:
             n_edge = next
         result.reverse()
         return result
-    '''
-        @method _find_node()
-        @description Finds a node with position "position" in an ordered list
 
-        @param "search_list" A list of PathNodes on which search is performed
-        @param "position" A CoordinatePair (int tuple) that will be searched for in "search_list"
-
-        @return The PathNode whose position is "position" if found, else none.
-    '''       
-    def _find_node(self, search_list: List[PathNode], position: CoordinatePair) -> None | PathNode:
-        for edge in search_list:
-            if edge.position == position:
-                return edge
-        return None
-    
-    '''
-        @method _priority_insert()
-        @description Inserts a PathNode node into a list based on its f_cost
-
-        @param "src" The PathNode node to insert
-        @param "dst" The list in which to insert "src"
-    '''     
-    def _priority_insert(self, dst: List[PathNode], src: PathNode) -> None:
-        
-        # Insert dst at the last position if it has the highest f_cost
-        trg_idx = -1
-        for idx, edge in enumerate(dst):
-            if edge.f_cost > src.f_cost:
-                trg_idx = idx
-                break
-        dst.insert(trg_idx,src)
 
     '''
         @method _get_neighbors()
@@ -448,12 +347,13 @@ class Game:
             CoordinatePair(x, y + 1),
             CoordinatePair(x, y - 1)
         ]
-        adjacent_cells = tuple([(pos, self._ghost_layer[pos.x,pos.y]) for pos in adjacent_cells \
-                          if pos.x >= 0 and pos.x < self._ghost_layer.shape[0] \
-                          and pos.y >= 0 and pos.y < self._ghost_layer.shape[1]])
+        adjacent_cells = tuple([(pos, self.map[pos.x][pos.y]) for pos in adjacent_cells \
+                          if pos.x >= 0 and pos.x < len(self.map[0]) \
+                          and pos.y >= 0 and pos.y < len(self.map[1])])
         return adjacent_cells
 
     def _get_neighbors(self, x: int, y: int) -> List[CoordinatePair]:
         adjacent_coords = self._get_adjacent_cells(x,y)
-        neighbors = (n for n, val in adjacent_coords if val != Tiles.WALL)
+        neighbors = tuple([n for n, val in adjacent_coords if not val.is_wall])
+        
         return neighbors
