@@ -1,6 +1,9 @@
 from typing import Tuple, NamedTuple, List, Dict, Sequence
 
-#from enum import Enum
+from path_node import PathNode
+from tile_object import TileObject
+from ghost import Ghost
+
 
 ## TYPES ##
 class TransitionMemory(NamedTuple):
@@ -9,10 +12,6 @@ class TransitionMemory(NamedTuple):
     next_action: Tuple[bool]
     reward: int
     done: bool
-
-class EXIT_CODES:
-    EXIT_FAILURE = -1
-    EXIT_SUCCESS = 0
 
 class Tiles:
     WALL = 0
@@ -26,21 +25,15 @@ class Tiles:
     GHOST_PLUS_POWERUP = 8
 
 class GameStatus:
-    GAME_OVER = False
-    GAME_RUNNING = True
+    GAME_OVER = True
+    GAME_RUNNING = False
 
 class CoordinatePair(NamedTuple):
     x: int
     y: int
 
 ## CONSTANTS ##
-MAP_FILENAME = "../assets/map_WithSpawn.png"
-
-MAX_GHOSTS = 3
-MAX_POWERUPS = 3
-MAX_INVINCIBILITY_TICKS = 25
-
-POINT_COVERAGE = 0.75
+MAP_FILENAME = "assets/map_WithSpawn.png"
 
 INIT_MANPAC_POSITION = CoordinatePair(15, 15)
 INIT_MANPAC_DIRECTION = CoordinatePair(1, 0)
