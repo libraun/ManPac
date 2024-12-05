@@ -4,7 +4,7 @@ from game import Game
 from defs import DIRECTIONS
 
 from state_viewer import *
-from model import Model
+from Model import Model
 from agent import Agent
 
 def draw_map():
@@ -59,6 +59,10 @@ if __name__ == "__main__":
     current_score = 0
     while running:
 
+        if DEBUG_ON:
+            draw_map()
+            clock.tick(50)
+
         last_state = state_viewer.get_state()
 
         action = agent.get_action(last_state)
@@ -80,8 +84,5 @@ if __name__ == "__main__":
                 top_score = current_score
                 print("New High Score:", top_score)
             game_env.reset()
-        if DEBUG_ON:
-            draw_map()
-            clock.tick(50)
 
     exit(0)
