@@ -4,7 +4,6 @@ import cv2
 import math
 import numpy as np
 import random
-import os
 
 import heapq
 
