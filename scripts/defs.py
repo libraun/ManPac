@@ -35,6 +35,8 @@ class CoordinatePair(NamedTuple):
 ## CONSTANTS ##
 MAP_FILENAME = "assets/map_WithSpawn.png"
 
+MAX_INVINCIBILITY_TICKS = 25
+
 INIT_MANPAC_POSITION = CoordinatePair(15, 15)
 INIT_MANPAC_DIRECTION = CoordinatePair(1, 0)
 
@@ -47,7 +49,7 @@ DIRECTIONS = (
 
 ## TRAINING ##
 
-MAX_MEMORY = 100000
+MAX_MEMORY = 10000
 BATCH_SIZE = 500
 
 ## ETC ##
