@@ -15,7 +15,7 @@ class Ghost:
         self.elapsed_ticks: int = 0
         
         self.position: Tuple[int] = coordinates
-        self.path: List[ CoordinatePair ] = []
+        self.path: List[ Tuple[int] ] = []
 
     def peek(self) -> None | Tuple[int]:
         
@@ -26,7 +26,8 @@ class Ghost:
         # If path is empty (or ghost has been following the same path for too long), 
         # reset this ghost's path.
         if not self.path or self.elapsed_ticks > 25:
-            self.reset()
+            self.is_busy = False
+            self.elapsed_ticks = 0
         # Else, set this ghost's new position to the coordinates at the top of their path.
         else:
             self.position = self.path.pop(0)
@@ -36,6 +37,7 @@ class Ghost:
     # Can be used to manually change the ghost's position, 
     # instead of having it follow its current path to the player
     def set_position(self, position: Tuple[int]) -> None:
+
         self.elapsed_ticks = 0
         self.position = position
     
