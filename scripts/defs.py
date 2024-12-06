@@ -13,16 +13,6 @@ class TransitionMemory(NamedTuple):
     reward: int
     done: bool
 
-class Tiles:
-    WALL = 0
-    FREE = 1
-    SPAWN = 2
-    POINT = 3
-    POWERUP = 4
-    MANPAC = 5
-    GHOST = 6
-    GHOST_PLUS_POINT = 7
-    GHOST_PLUS_POWERUP = 8
 
 class GameStatus:
     GAME_OVER = True
@@ -49,8 +39,8 @@ DIRECTIONS = (
 
 ## TRAINING ##
 
-MAX_MEMORY = 10000
-BATCH_SIZE = 500
+MAX_MEMORY = 50
+BATCH_SIZE = 50
 
 ## ETC ##
 
