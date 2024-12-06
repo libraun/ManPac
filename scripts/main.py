@@ -1,10 +1,10 @@
 import pygame as pg
 
 from game import Game
-from defs import DIRECTIONS
+from defs import *
 
-from state_viewer import *
-from Model import Model
+from state_memory import StateMemory
+from cnn_model import CNNModel
 from agent import Agent
 
 def draw_map():
@@ -12,7 +12,7 @@ def draw_map():
     global screen, game_env
     # Reset the screen by filling it with black pixels.
     screen.fill((0,0,0))
-    for i, row in enumerate(game_env.get_map()):
+    for i, row in enumerate(game_env.map):
         for j, cell in enumerate(row):
             
             # Create even-length rectangles, coloring them black if they represent a wall or grey if free space.
@@ -36,15 +36,24 @@ def draw_map():
     pg.display.flip()
 
 
+    
+def get_state(grid) -> tuple:
+    result = [[[False for _ in range(32)] for _ in range(32)] for __ in range(5)]
+    for i, row in enumerate(grid):
+        for j, cell in enumerate(row):
+            for k, val in enumerate(cell.get_repr()):
+                result[k][i][j] = val
+         
+    return tuple(result)
+
 # Enables graphics (using Pygame) if true
-DEBUG_ON = True
+DEBUG_ON = False
 
 if __name__ == "__main__":
 
     game_env = Game()
-    state_viewer = DataViewer(game_env)
 
-    model = Model(in_features=5, out_features=4, hidden_dim=64)
+    model = CNNModel(in_features=5, out_features=4, hidden_dim=128)
     agent = Agent(model=model,state_memory=StateMemory())
 
     pg.init()
@@ -63,15 +72,16 @@ if __name__ == "__main__":
             draw_map()
             clock.tick(50)
 
-        last_state = state_viewer.get_state()
+        last_state = get_state(game_env.map)
 
         action = agent.get_action(last_state)
         target_direction = DIRECTIONS[action.index(1)]
 
         game_complete, reward = game_env.play_step(target_direction)
-        current_score += reward
+        if reward > 0:
+            current_score += reward
 
-        final_state = state_viewer.get_state()
+        final_state = get_state(game_env.map)
             
         agent.train_step(last_state,final_state,action,reward,game_complete)
         
@@ -80,9 +90,13 @@ if __name__ == "__main__":
 
             agent.train()
             agent.n_games += 1
+
+            print(agent.total_loss / agent.n_games, current_score)
             if current_score > top_score:
                 top_score = current_score
                 print("New High Score:", top_score)
+
+            current_score = 0
             game_env.reset()
 
     exit(0)
